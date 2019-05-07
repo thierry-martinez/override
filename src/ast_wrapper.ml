@@ -42,7 +42,7 @@ module Ast_definitions (Types : Ast_types) = struct
     | Contents of contents
     | Functor of
         string Location.loc * Parsetree.module_type option * module_expr
-    | Constraint of module_expr * Parsetree.module_type
+    | Constraint of module_expr Lazy.t * Parsetree.module_type
     | Other of module_expr
 
   type wrapped_module_expr = module_expr_desc attributed Location.loc
@@ -70,6 +70,10 @@ module type S = sig
   val destruct_module_expr : module_expr -> wrapped_module_expr
 
   val build_module_expr : wrapped_module_expr -> module_expr
+
+  val choose :
+      (unit -> Parsetree.module_expr) -> (unit -> Parsetree.module_type) ->
+        module_expr
 end
 
 module Structure_types = struct
@@ -153,7 +157,7 @@ module Structure : S with module Types = Structure_types = struct
       | Pmod_ident lid -> Ident lid
       | Pmod_structure s -> Contents s
       | Pmod_functor (x, t, s) -> Functor (x, t, s)
-      | Pmod_constraint (m, t) -> Constraint (m, t)
+      | Pmod_constraint (m, t) -> Constraint (Lazy.from_val m, t)
       | Pmod_apply (e, x) ->
           begin
             match longident_of_module_expr e, longident_of_module_expr x with
@@ -170,8 +174,12 @@ module Structure : S with module Types = Structure_types = struct
       | Ident lid -> module_expr_of_longident lid
       | Contents s -> Ast_helper.Mod.structure ~loc ~attrs s
       | Functor (x, t, s) -> Ast_helper.Mod.functor_ ~loc ~attrs x t s
-      | Constraint (m, t) -> Ast_helper.Mod.constraint_ ~loc ~attrs m t
+      | Constraint (m, t) ->
+          Ast_helper.Mod.constraint_ ~loc ~attrs (Lazy.force m) t
       | Other expr -> Ast_helper.Mod.mk ~loc ~attrs expr.pmod_desc
+
+  let choose make_expr make_type =
+    make_expr ()
 end
 
 module Signature_types = struct
@@ -253,4 +261,7 @@ module Signature : S with module Types = Signature_types = struct
       | Functor (x, t, s) -> Ast_helper.Mty.functor_ ~loc ~attrs x t s
       | Constraint (_m, t) -> t
       | Other expr -> Ast_helper.Mty.mk ~loc ~attrs expr.pmty_desc
+
+  let choose make_expr make_type =
+    make_type ()
 end

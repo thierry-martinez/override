@@ -1,0 +1,4 @@
+(library
+  (name gagallium)
+  (preprocess (staged_pps override))
+  (flags -dsource))

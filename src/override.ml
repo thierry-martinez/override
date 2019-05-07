@@ -996,21 +996,29 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                 let symbols =
                   Symbol_set.union !(context.overriden_ref)
                     !(context.defined_ref) in
+                let module_expr = module_of_ident ~loc modenv.modinfo.ident in
                 let with_constraints =
                   with_constraints signature.table modenv.modinfo.ident
                     conversion_context symbols in
                 let modident =
-                  Ast_wrapper.module_expr_of_longident modenv.modinfo.ident in
-                include_module ~loc (
-                  Wrapper.build_module_expr (Wrapper.mkattr ~loc (
-                    Wrapper.Constraint (
-                      module_of_ident ~loc modenv.modinfo.ident,
-                      Ast_helper.Mty.with_ (Ast_helper.Mty.typeof_
-                        (Ast_helper.Mod.structure [
-                          Ast_helper.Str.include_
-                            (Ast_helper.Incl.mk modident)]))
-                             with_constraints)))) ::
-                  contents in
+                  Ast_wrapper.module_expr_of_longident
+                    modenv.modinfo.ident in
+                let type_of () =
+                  Ast_helper.Mty.typeof_
+                    (Ast_helper.Mod.structure [
+                     Ast_helper.Str.include_ (Ast_helper.Incl.mk modident)]) in
+                let module_expr =
+                  match with_constraints with
+                  | [] ->
+                      Wrapper.choose (fun () -> modident)
+                        (fun () -> type_of ())
+                  | _ ->
+                      Wrapper.build_module_expr (Wrapper.mkattr ~loc (
+                        Wrapper.Constraint (
+                          lazy module_expr,
+                          Ast_helper.Mty.with_ (type_of ())
+                                 with_constraints))) in
+                include_module ~loc module_expr :: contents in
           structure_of_contents ~loc contents
         | Functor (x, t, e) ->
             let context =
@@ -1028,7 +1036,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             Wrapper.build_module_expr (Wrapper.mkattr ~loc (
               Wrapper.Functor (x, t, e')))
         | Constraint (e, t) ->
-            let e' = override_module_expr context e in
+            let e' = lazy (override_module_expr context (Lazy.force e)) in
             Wrapper.build_module_expr (Wrapper.mkattr ~loc (
               Wrapper.Constraint (e', t)))
         | _ ->
