@@ -1,3 +1,7 @@
+(* This example implements mechanically the transformations rule
+   described in the comments of
+   https://github.com/ocaml-ppx/ppxlib/blob/master/ast/ast.ml *)
+
 [%%recursive
   module%import Stdlib = struct
     module%import Lexing = struct

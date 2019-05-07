@@ -1,5 +1,5 @@
 (library
-  (name ast)
+  (name ppxlib_ast)
   (preprocess (staged_pps override))
   (flags -dsource)
   (libraries compiler-libs.common))
