@@ -1,35 +1,35 @@
-[%%override: module Base : sig
+module%override Base : sig
   type t = float
 
   type z = _ [@@from: u] [@@rewrite]
 
   type a = int
 
-  [%%override: module M : sig
+  module%override M : sig
     type 'a t = _ [@@deriving]
-  end]
+  end
 
-  [%%override: module F (X : S) : sig
+  module%override F (X : S) : sig
     type t = X.t
-  end]
+  end
 
   module N : sig
     type t = int
   end
 
-  [%%override: module O : sig
+  module%override O : sig
     type u = float
 
     [%%types] [@@deriving]
-  end]
+  end
 
-  [%%override: module P : sig
+  module%override P : sig
     [%%recursive:
       type v [@@remove]
       [%%types] [@@deriving]]
-  end]
+  end
 
-  [%%override: module G (Y : S) : sig
+  module%override G (Y : S) : sig
     [%%types]
-  end]
-end]
+  end
+end

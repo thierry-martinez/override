@@ -1,30 +1,30 @@
 [%%recursive
-  [%%import module Stdlib = struct
-    [%%import module Lexing = struct
+  module%import Stdlib = struct
+    module%import Lexing = struct
       type position = _ [@@rewrite]
-    end]
-  end]
+    end
+  end
 
-  [%%import module Location = struct
+  module%import Location = struct
     type location = _ [@@from: t] [@@rewrite]
 
     type 'a loc = _ [@@rewrite]
-  end]
+  end
 
-  [%%import module Longident = struct
+  module%import Longident = struct
     type longident = _ [@@from: t] [@@rewrite]
-  end]
+  end
 
   type longident_loc = longident loc [@@rewrite]
 
-  [%%import module Asttypes = struct
+  module%import Asttypes = struct
     type constant [@@remove]
 
     type 'a loc [@@rewrite] [@@remove]
 
     [%%types] [@@rewrite]
-  end]
+  end
 
-  [%%import module Parsetree = struct
+  module%import Parsetree = struct
     [%%types]
-  end]]
+  end]

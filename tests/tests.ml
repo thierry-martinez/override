@@ -1,35 +1,35 @@
-[%%override module Base : Tests_spec.S = struct
+module%override Base : Tests_spec.S = struct
   type t = float
 
   type z = _ [@@from: u] [@@rewrite]
 
   type a = int
 
-  [%%override module M = struct
+  module%override M = struct
     type 'a t = _ [@@deriving]
-  end]
+  end
 
-  [%%override module F (X : S) = struct
+  module%override F (X : S) = struct
     type t = X.t
-  end]
+  end
 
   module N = struct
     type t = int
   end
 
-  [%%override module O = struct
+  module%override O = struct
     type u = float
 
     [%%types] [@@deriving]
-  end]
+  end
 
-  [%%override module P = struct
+  module%override P = struct
     [%%recursive
       type v [@@remove]
       [%%types] [@@deriving]]
-  end]
+  end
 
-  [%%override module G (Y : S) = struct
+  module%override G (Y : S) = struct
     [%%types]
-  end]
-end]
+  end
+end
