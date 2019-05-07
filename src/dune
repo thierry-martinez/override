@@ -1,0 +1,6 @@
+(library
+  (public_name override)
+  (kind ppx_rewriter)
+  (preprocess (pps ppxlib.metaquot))
+  (flags -open Stdcompat -w +32)
+  (libraries compiler-libs.common ppxlib stdcompat ppx_tools))
