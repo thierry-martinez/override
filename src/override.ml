@@ -344,7 +344,7 @@ let rec core_type_of_type_expr (context : type_conversion_context)
         | Tvariant { row_fields; _ } ->
             let fields =
               row_fields |> List.map (fun (label, (row_field : Types.row_field)) : Parsetree.row_field ->
-                let label = Location.mknoloc label in
+                let label = mkloc label in
                 match row_field with
                 | Rpresent None -> Rtag (label, [], true, [])
                 | Rpresent (Some ttyp) ->
@@ -511,6 +511,7 @@ end
 let import_type_decl ~loc ~(new_name : string Location.loc)
     ~(imported_name : string Location.loc) ?params attrs
     modident rewrite_context (decl : Symbol_table.type_decl) overriden_ref defined_ref =
+  Ast_helper.with_default_loc loc @@ fun () ->
   let rewrite_context = { rewrite_context with
     subst_constr = Longident_map.add
       (Lident imported_name.txt) (Longident.Lident new_name.txt)
@@ -575,7 +576,7 @@ let import_type_decl ~loc ~(new_name : string Location.loc)
             let imported_type = Ast_helper.Typ.constr
                 (ident_of_name imported_name)
                 params in
-            attrs @ [(Location.mknoloc "from", PTyp imported_type)]
+            attrs @ [(mkloc "from", PTyp imported_type)]
           else
             attrs in
         Some (core_type_of_type_expr conversion_context typ), attrs
@@ -854,6 +855,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref 
     end then
       type_decls |> List.map begin
         fun (decl : Parsetree.type_declaration) ->
+          Ast_helper.with_default_loc decl.ptype_loc @@ fun () ->
         let () =
           match decl.ptype_manifest with
           | Some [%type: _] | None -> ()
@@ -883,6 +885,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref 
     else
       type_decls |> List.filter_map begin
         fun (decl : Parsetree.type_declaration) ->
+          Ast_helper.with_default_loc decl.ptype_loc @@ fun () ->
           let imported_decl = String_map.find_opt decl.ptype_name.txt map in
           begin match imported_decl with
           | None -> ()
