@@ -38,4 +38,8 @@ module type S = sig
 
     type u = bool
   end
+
+  module G (Y : S) : sig
+    type t = Y.t
+  end
 end

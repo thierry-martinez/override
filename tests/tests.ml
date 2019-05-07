@@ -28,4 +28,8 @@
       type v [@@remove]
       [%%types] [@@deriving]]
   end]
+
+  [%%override module G (Y : S) = struct
+    [%%types]
+  end]
 end]

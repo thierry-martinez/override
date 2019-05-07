@@ -37,3 +37,7 @@ module P = struct
 
   type 'a v = 'a option
 end
+
+module G (X : S) = struct
+  type t = X.t
+end

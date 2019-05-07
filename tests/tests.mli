@@ -28,5 +28,8 @@
       type v [@@remove]
       [%%types] [@@deriving]]
   end]
-end]
 
+  [%%override: module G (Y : S) : sig
+    [%%types]
+  end]
+end]

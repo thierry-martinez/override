@@ -260,12 +260,14 @@ let rec rewrite rewrite_system (ty : Parsetree.core_type) : Parsetree.core_type 
 type rewrite_context = {
     subst_var : Parsetree.core_type String_map.t;
     subst_constr : Longident.t Longident_map.t;
+    subst_mod : Longident.t Longident_map.t;
     rewrite_system : rewrite_system;
   }
 
 let empty_rewrite_context = {
   subst_var = String_map.empty;
   subst_constr = Longident_map.empty;
+  subst_mod = Longident_map.empty;
   rewrite_system = [];
 }
 
@@ -292,6 +294,15 @@ let univar_of_type_expr (t : Types.type_expr) =
   match t.desc with
   | Tunivar var -> var
   | _ -> invalid_arg "univar_of_type_expr"
+
+let rec rewrite_mod (subst : Longident.t Longident_map.t) (lid : Longident.t) =
+  match Longident_map.find_opt lid subst with
+  | Some lid' -> lid'
+  | None ->
+    match lid with
+    | Lident _ -> lid
+    | Ldot (lid, name) -> Ldot (rewrite_mod subst lid, name)
+    | Lapply (u, v) -> Lapply (rewrite_mod subst u, rewrite_mod subst v)
 
 let rec core_type_of_type_expr (context : type_conversion_context)
     (type_expr : Types.type_expr) : Parsetree.core_type =
@@ -321,17 +332,15 @@ let rec core_type_of_type_expr (context : type_conversion_context)
         | Ttuple xs ->
             Ast_helper.Typ.tuple (List.map (core_type_of_type_expr context) xs)
         | Tconstr (path, args, _) ->
-            let lid  = Untypeast.lident_of_path path in
+            let lid = Untypeast.lident_of_path path in
             let args = (List.map (core_type_of_type_expr context) args) in
-            begin match Longident_map.find_opt lid context.rewrite.subst_constr with
-            | Some lid' ->
-                Ast_helper.Typ.constr (mkloc lid') args
-            | None ->
-                let result =
-                  Ast_helper.Typ.constr (mkloc (Untypeast.lident_of_path path))
-                    args in
-                rewrite context.rewrite.rewrite_system result
-            end
+            let lid =
+              match Longident_map.find_opt lid context.rewrite.subst_constr with
+              | Some lid' -> lid'
+              | None -> lid in
+            let lid = rewrite_mod context.rewrite.subst_mod lid in
+            let result = Ast_helper.Typ.constr (mkloc lid) args in
+            rewrite context.rewrite.rewrite_system result
         | Tvariant { row_fields; _ } ->
             let fields =
               row_fields |> List.map (fun (label, (row_field : Types.row_field)) : Parsetree.row_field ->
@@ -723,16 +732,17 @@ type modenv = {
   }
 
 let get_functor ~loc modenv name =
+  let y, modtype =
+    match resolve_alias ~loc modenv.env modenv.modinfo.modtype with
+    | Mty_functor (y, t, ty) -> y, ty
+    | _ ->
+        Location.raise_errorf ~loc "%s: %a is not a functor"
+          override_name Printtyp.longident modenv.modinfo.ident.txt in
   let modinfo = {
     ident = modenv.modinfo.ident |> map_loc
       (fun ident : Longident.t -> Lapply (ident, Lident name));
-    modtype =
-      match resolve_alias ~loc modenv.env modenv.modinfo.modtype with
-      | Mty_functor (y, t, ty) -> ty
-      | _ ->
-          Location.raise_errorf ~loc "%s: %a is not a functor"
-            override_name Printtyp.longident modenv.modinfo.ident.txt } in
-  { modenv with modinfo }
+    modtype } in
+  y, { modenv with modinfo }
 
 let get_signature ~loc modenv =
   match resolve_alias ~loc modenv.env modenv.modinfo.modtype with
@@ -1003,10 +1013,17 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                   contents in
           structure_of_contents ~loc contents
         | Functor (x, t, e) ->
-            let modenv = context.modenv |> Option.map begin fun modenv ->
-              get_functor ~loc modenv x.txt
-            end in
-            let context = { context with modenv } in
+            let context =
+              match context.modenv with
+              | None -> context
+              | Some modenv ->
+                  let y, modenv = get_functor ~loc modenv x.txt in
+                  let rewrite_env = { context.rewrite_env with context =
+                    { context.rewrite_env.context with subst_mod =
+                      Longident_map.add (Longident.Lident (Ident.name y))
+                        (Longident.Lident x.txt)
+                        context.rewrite_env.context.subst_mod }} in
+                  { context with modenv = Some modenv; rewrite_env } in
             let e' = override_module_expr context e in
             Wrapper.build_module_expr (Wrapper.mkattr ~loc (
               Wrapper.Functor (x, t, e')))
