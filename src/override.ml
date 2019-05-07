@@ -559,7 +559,7 @@ let import_type_decl ~loc ~(new_name : string Location.loc)
         let attrs : Parsetree.attributes =
           if Ast_convenience.has_attr "rewrite" attrs && not (Ast_convenience.has_attr "from" attrs) then
             let imported_type = Ast_helper.Typ.constr
-                (ident_of_name new_name)
+                (ident_of_name imported_name)
                 params in
             attrs @ [(Location.mknoloc "from", PTyp imported_type)]
           else
@@ -568,7 +568,7 @@ let import_type_decl ~loc ~(new_name : string Location.loc)
     | None ->
         let manifest =
           Ast_helper.Typ.constr
-            (qualified_ident_of_name modident new_name)
+            (qualified_ident_of_name modident imported_name)
             params in
         Some manifest, attrs in
   let result = ({
