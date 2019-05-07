@@ -448,11 +448,13 @@ module Symbol_table = struct
   type t = {
       types : type_decl String_map.t;
       modules : Types.module_declaration String_map.t;
+      only_types : bool;
     }
 
   let empty = {
     types = String_map.empty;
     modules = String_map.empty;
+    only_types = true;
   }
 
   let add_type name type_decl table =
@@ -460,6 +462,9 @@ module Symbol_table = struct
 
   let add_module name mod_decl table =
     { table with modules = String_map.add name mod_decl table.modules }
+
+  let not_only_types table =
+    { table with only_types = false }
 
   let rec cut_rec_types accu (tsig : Types.signature) =
     match tsig with
@@ -497,8 +502,8 @@ module Symbol_table = struct
         group_signature (group :: rev_groups) table tail
     | Sig_module (ident, decl, _rec_flag) :: tail ->
         let table = add_module (Ident.name ident) decl table in
-        group_signature rev_groups table tail
-    | _ :: tail -> group_signature rev_groups table tail
+        group_signature rev_groups (not_only_types table) tail
+    | _ :: tail -> group_signature rev_groups (not_only_types table) tail
 
   let of_signature tsig = group_signature [] empty tsig
 end
@@ -990,35 +995,43 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             | Import, _
             | _, None -> contents
             | _, Some (modenv, signature) ->
-                let conversion_context =
-                  create_type_conversion_context
-                    (current_rewrite_context context.rewrite_env) in
-                let symbols =
-                  Symbol_set.union !(context.overriden_ref)
-                    !(context.defined_ref) in
-                let module_expr = module_of_ident ~loc modenv.modinfo.ident in
-                let with_constraints =
-                  with_constraints signature.table modenv.modinfo.ident
-                    conversion_context symbols in
-                let modident =
-                  Ast_wrapper.module_expr_of_longident
-                    modenv.modinfo.ident in
-                let type_of () =
-                  Ast_helper.Mty.typeof_
-                    (Ast_helper.Mod.structure [
-                     Ast_helper.Str.include_ (Ast_helper.Incl.mk modident)]) in
-                let module_expr =
-                  match with_constraints with
-                  | [] ->
-                      Wrapper.choose (fun () -> modident)
-                        (fun () -> type_of ())
-                  | _ ->
-                      Wrapper.build_module_expr (Wrapper.mkattr ~loc (
-                        Wrapper.Constraint (
-                          lazy module_expr,
-                          Ast_helper.Mty.with_ (type_of ())
-                                 with_constraints))) in
-                include_module ~loc module_expr :: contents in
+                if signature.table.only_types &&
+                  signature.table.types |> String_map.for_all begin
+                    fun _ (decl : Symbol_table.type_decl) ->
+                      decl.imported
+                  end then
+                  contents
+                else
+                  let conversion_context =
+                    create_type_conversion_context
+                      (current_rewrite_context context.rewrite_env) in
+                  let symbols =
+                    Symbol_set.union !(context.overriden_ref)
+                      !(context.defined_ref) in
+                  let module_expr = module_of_ident ~loc modenv.modinfo.ident in
+                  let with_constraints =
+                    with_constraints signature.table modenv.modinfo.ident
+                      conversion_context symbols in
+                  let modident =
+                    Ast_wrapper.module_expr_of_longident
+                      modenv.modinfo.ident in
+                  let type_of () =
+                    Ast_helper.Mty.typeof_
+                      (Ast_helper.Mod.structure [
+                       Ast_helper.Str.include_ (
+                         Ast_helper.Incl.mk modident)]) in
+                  let module_expr =
+                    match with_constraints with
+                    | [] ->
+                        Wrapper.choose (fun () -> modident)
+                          (fun () -> type_of ())
+                    | _ ->
+                        Wrapper.build_module_expr (Wrapper.mkattr ~loc (
+                          Wrapper.Constraint (
+                            lazy module_expr,
+                            Ast_helper.Mty.with_ (type_of ())
+                                   with_constraints))) in
+                  include_module ~loc module_expr :: contents in
           structure_of_contents ~loc contents
         | Functor (x, t, e) ->
             let context =

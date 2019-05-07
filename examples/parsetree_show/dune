@@ -1,0 +1,5 @@
+(executable
+  (name parsetree_show)
+  (preprocess (staged_pps override ppx_deriving.show))
+  (flags -dsource)
+  (libraries compiler-libs.common))
