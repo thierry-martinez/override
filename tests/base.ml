@@ -41,3 +41,9 @@ end
 module G (X : S) = struct
   type t = X.t
 end
+
+module Rec_group = struct
+  type a = A of b and b = B of a
+
+  type c = C of d and d = D of c
+end

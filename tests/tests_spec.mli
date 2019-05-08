@@ -42,4 +42,9 @@ module type S = sig
   module G (Y : S) : sig
     type t = Y.t
   end
+
+  module Rec_group : sig
+    type a = Base.Rec_group.a = A of b and b = Base.Rec_group.b = B of a
+    type c = Base.Rec_group.c = C of d and d = Base.Rec_group.d = D of c
+  end
 end

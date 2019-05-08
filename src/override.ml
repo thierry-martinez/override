@@ -508,13 +508,21 @@ module Symbol_table = struct
   let of_signature tsig = group_signature [] empty tsig
 end
 
-let import_type_decl ~loc ~(new_name : string Location.loc)
-    ~(imported_name : string Location.loc) ?params attrs
-    modident rewrite_context (decl : Symbol_table.type_decl) overriden_ref defined_ref =
+type import_type_decl = {
+    from_name : string Location.loc;
+    new_name : string Location.loc;
+    attrs : Parsetree.attributes;
+    decl : Symbol_table.type_decl;
+    params : Parsetree.core_type list option;
+    loc : Location.t;
+  }
+
+let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
+    rewrite_context overriden_ref defined_ref =
   Ast_helper.with_default_loc loc @@ fun () ->
   let rewrite_context = { rewrite_context with
     subst_constr = Longident_map.add
-      (Lident imported_name.txt) (Longident.Lident new_name.txt)
+      (Lident from_name.txt) (Longident.Lident new_name.txt)
       rewrite_context.subst_constr } in
   let add_subst_param subst_var ((tparam : Types.type_expr), pparam) =
     match var_of_type_expr tparam with
@@ -574,7 +582,7 @@ let import_type_decl ~loc ~(new_name : string Location.loc)
         let attrs : Parsetree.attributes =
           if Ast_convenience.has_attr "rewrite" attrs && not (Ast_convenience.has_attr "from" attrs) then
             let imported_type = Ast_helper.Typ.constr
-                (ident_of_name imported_name)
+                (ident_of_name from_name)
                 params in
             attrs @ [(mkloc "from", PTyp imported_type)]
           else
@@ -583,7 +591,7 @@ let import_type_decl ~loc ~(new_name : string Location.loc)
     | None ->
         let manifest =
           Ast_helper.Typ.constr
-            (qualified_ident_of_name modident imported_name)
+            (qualified_ident_of_name modident from_name)
             params in
         Some manifest, attrs in
   let result = ({
@@ -594,8 +602,12 @@ let import_type_decl ~loc ~(new_name : string Location.loc)
     ptype_loc = decl.decl.type_loc; } : Parsetree.type_declaration) in
   decl.imported <- true;
   defined_ref := Symbol_set.add_type new_name.txt !defined_ref;
-  overriden_ref := Symbol_set.add_type imported_name.txt !overriden_ref;
+  overriden_ref := Symbol_set.add_type from_name.txt !overriden_ref;
   result
+
+let import_of_decl ~loc (decl : Symbol_table.type_decl) attrs =
+  let name : string Location.loc = { loc; txt = decl.name } in
+  { loc; new_name = name; from_name = name; attrs; decl; params = None }
 
 let decl_of_group ~loc attrs modident rewrite_context (group : Symbol_table.type_decl_group)
     overriden_ref defined_ref =
@@ -604,10 +616,9 @@ let decl_of_group ~loc attrs modident rewrite_context (group : Symbol_table.type
       None
     else
       try
-        let name : string Location.loc = { loc; txt = decl.name } in
-        Some (import_type_decl ~loc
-                ~new_name:name ~imported_name:name
-                attrs modident rewrite_context decl overriden_ref defined_ref)
+        Some (import_type_decl
+          (import_of_decl ~loc decl attrs)
+          modident rewrite_context overriden_ref defined_ref)
       with Unsupported ->
         None
   end
@@ -845,7 +856,62 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
       | _ -> Some decl
   end
 
-let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref rewrite_context =
+let type_decls_has_co (type_decls : Parsetree.type_declaration list) =
+  match List.rev type_decls with
+  | { ptype_name = { txt = "co"; _ };
+      ptype_manifest = None;
+      ptype_attributes; _ } :: others
+    when not (Ast_convenience.has_attr "from" ptype_attributes) ->
+      others, Some ptype_attributes
+  | _ -> type_decls, None
+
+let list_type_decls_to_import map modident type_decls =
+  type_decls |> List.map begin fun (pdecl : Parsetree.type_declaration) ->
+    let loc = pdecl.ptype_loc in
+    begin match pdecl.ptype_manifest with
+    | Some [%type: _] | None -> ()
+    | _ -> Location.raise_errorf ~loc "Types to import should have no manifest"
+    end;
+    let from_name, attrs =
+      match find_attr_type ~loc "from" pdecl.ptype_attributes with
+      | None -> pdecl.ptype_name, pdecl.ptype_attributes
+      | Some { ptyp_desc =
+            Ptyp_constr ({ txt = Lident name; loc }, []); _ } ->
+              { loc; txt = name },
+          if Ast_convenience.has_attr "rewrite" pdecl.ptype_attributes then
+            pdecl.ptype_attributes
+          else
+            pop_attr "from" pdecl.ptype_attributes
+      | _ ->
+          Location.raise_errorf ~loc "%s: Type name expected" override_name in
+    let decl = find_type from_name map modident in
+    { from_name; new_name = pdecl.ptype_name; attrs; decl;
+      loc; params = Some (List.map fst pdecl.ptype_params) }
+  end
+
+let include_co_in_type_list attrs type_list =
+  let types_already_there =
+    List.fold_left (fun set import -> String_set.add import.from_name.txt set)
+      String_set.empty type_list in
+  let type_list, _types_already_there =
+    List.fold_left begin fun accu import ->
+      List.fold_left begin fun accu (decl : Symbol_table.type_decl) ->
+        let type_list, types_already_there = accu in
+        if String_set.mem decl.name types_already_there then
+          accu
+        else
+          import_of_decl ~loc:import.loc decl attrs :: type_list,
+          String_set.add decl.name types_already_there
+      end accu import.decl.rec_group.decls
+    end (type_list, types_already_there) type_list in
+  type_list
+
+let decl_has_attr attr (decl : Parsetree.type_declaration) =
+  Ast_convenience.has_attr attr decl.ptype_attributes
+
+let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
+    rewrite_context =
+  let type_decls, and_co = type_decls_has_co type_decls in
   let type_decls =
     if type_decls |> List.exists begin
       fun (decl : Parsetree.type_declaration) ->
@@ -853,64 +919,70 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref 
         | Some [%type: _] -> true
         | _ -> false
     end then
-      type_decls |> List.map begin
-        fun (decl : Parsetree.type_declaration) ->
-          Ast_helper.with_default_loc decl.ptype_loc @@ fun () ->
-        let () =
-          match decl.ptype_manifest with
-          | Some [%type: _] | None -> ()
-          | _ ->
-              Location.raise_errorf ~loc:decl.ptype_loc
-                "Types to import should have no manifest" in
-        let name, attrs =
-          match find_attr_type ~loc:decl.ptype_loc "from" decl.ptype_attributes with
-          | None -> decl.ptype_name, decl.ptype_attributes
-          | Some { ptyp_desc =
-                Ptyp_constr ({ txt = Lident name; loc }, []); _ } ->
-              { loc; txt = name },
-                  if Ast_convenience.has_attr "rewrite" decl.ptype_attributes then
-                    decl.ptype_attributes
-                  else
-                    pop_attr "from" decl.ptype_attributes
-          | _ ->
-              Location.raise_errorf ~loc:decl.ptype_loc
-                "%s: Type name expected" override_name in
-        let type_decl = find_type name map modident in
-        import_type_decl ~loc:decl.ptype_loc
-          ~new_name:decl.ptype_name ~imported_name:name
-          ~params:(List.map fst decl.ptype_params)
-          attrs modident rewrite_context
-          type_decl overriden_ref defined_ref
+      let type_list = list_type_decls_to_import map modident type_decls in
+      let type_list =
+        match and_co with
+        | None -> type_list
+        | Some attrs -> include_co_in_type_list attrs type_list in
+      type_list |> List.map begin fun import ->
+        import_type_decl import modident rewrite_context overriden_ref
+          defined_ref
       end
-    else
-      type_decls |> List.filter_map begin
-        fun (decl : Parsetree.type_declaration) ->
-          Ast_helper.with_default_loc decl.ptype_loc @@ fun () ->
-          let imported_decl = String_map.find_opt decl.ptype_name.txt map in
-          begin match imported_decl with
-          | None -> ()
-          | Some decl -> decl.imported <- true
-          end;
-          overriden_ref := Symbol_set.add_type decl.ptype_name.txt !overriden_ref;
-          if Ast_convenience.has_attr "remove" decl.ptype_attributes then
-            if Ast_convenience.has_attr "rewrite" decl.ptype_attributes then
-              let from_type =
-                match imported_decl with
-                | None -> not_found kind_type decl.ptype_name modident
-                | Some imported_decl ->
-                    match imported_decl.decl.type_manifest with
-                    | None -> Location.raise_errorf ~loc:decl.ptype_loc "Manifest expected"
-                    | Some typ ->
-                        core_type_of_type_expr (create_type_conversion_context rewrite_context) typ in
-              let decl = { decl with ptype_attributes = ({ loc = decl.ptype_loc; txt = "from" }, PTyp from_type) :: decl.ptype_attributes } in
-              Some decl
-            else
-              None
-          else
-            begin
-              defined_ref := Symbol_set.add_type decl.ptype_name.txt !defined_ref;
-              Some decl
+    else if type_decls |> List.exists (decl_has_attr "remove") then
+      let type_list =
+        match and_co with
+        | None ->
+            type_decls |> List.map begin
+              fun (decl : Parsetree.type_declaration) ->
+                decl.ptype_name,
+                String_map.find_opt decl.ptype_name.txt map,
+                decl.ptype_loc
             end
+        | Some attrs ->
+            list_type_decls_to_import map modident type_decls |>
+            include_co_in_type_list attrs |>
+            List.map (fun { from_name; decl; loc; _ } ->
+              (from_name, Some decl, loc)) in
+      begin
+        type_list |> List.iter begin
+          fun (_, (decl : Symbol_table.type_decl option), _) ->
+            match decl with
+            | None -> ()
+            | Some decl -> decl.imported <- true
+        end
+      end;
+      if type_decls |> List.exists (decl_has_attr "rewrite") then
+        type_list |> List.map begin fun (name, decl, loc) ->
+          Ast_helper.with_default_loc loc begin fun () ->
+            let from_type =
+              match decl with
+              | None -> not_found kind_type name modident
+              | Some (decl : Symbol_table.type_decl) ->
+                  match decl.decl.type_manifest with
+                  | None ->
+                      Location.raise_errorf ~loc "Manifest expected"
+                  | Some typ ->
+                      core_type_of_type_expr
+                        (create_type_conversion_context rewrite_context) typ in
+            Ast_helper.Type.mk name ~attrs:[
+              mkloc "from", PTyp from_type;
+              mkloc "rewrite", PStr [];
+              mkloc "remove", PStr []]
+          end
+        end
+      else
+        []
+    else
+      begin
+        type_decls |> List.iter begin
+          fun (decl : Parsetree.type_declaration) ->
+            begin match String_map.find_opt decl.ptype_name.txt map with
+            | None -> ()
+            | Some decl -> decl.imported <- true
+            end;
+            defined_ref := Symbol_set.add_type decl.ptype_name.txt !defined_ref;
+        end;
+        type_decls
       end in
   if type_decls = [] then
     []
@@ -941,8 +1013,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
     match extract_type_decls contents with
     | [] -> None
     | hd :: tl ->
-        let type_decls =
-          { hd with ptype_attributes = attributes @ hd.ptype_attributes } :: tl in
+        let ptype_attributes = attributes @ hd.ptype_attributes in
+        let type_decls = { hd with ptype_attributes } :: tl in
         Some (Wrapper.build { loc; txt = Type (Recursive, type_decls)})
 
   let include_module ~loc (expr : Wrapper.module_expr) : Wrapper.item =
