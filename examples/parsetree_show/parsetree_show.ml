@@ -17,5 +17,9 @@ module%override Asttypes = struct
 end
 
 module%override Parsetree = struct
+  type toplevel_phrase and co [@@remove]
+
   [%%types] [@@deriving show]
+
+  type toplevel_phrase = _ and co
 end

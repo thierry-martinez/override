@@ -911,7 +911,7 @@ let decl_has_attr attr (decl : Parsetree.type_declaration) =
 
 let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
     rewrite_context =
-  let type_decls, and_co = type_decls_has_co type_decls in
+  let type_decls', and_co = type_decls_has_co type_decls in
   let type_decls =
     if type_decls |> List.exists begin
       fun (decl : Parsetree.type_declaration) ->
@@ -919,7 +919,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
         | Some [%type: _] -> true
         | _ -> false
     end then
-      let type_list = list_type_decls_to_import map modident type_decls in
+      let type_list = list_type_decls_to_import map modident type_decls' in
       let type_list =
         match and_co with
         | None -> type_list
@@ -932,14 +932,14 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
       let type_list =
         match and_co with
         | None ->
-            type_decls |> List.map begin
+            type_decls' |> List.map begin
               fun (decl : Parsetree.type_declaration) ->
                 decl.ptype_name,
                 String_map.find_opt decl.ptype_name.txt map,
                 decl.ptype_loc
             end
         | Some attrs ->
-            list_type_decls_to_import map modident type_decls |>
+            list_type_decls_to_import map modident type_decls' |>
             include_co_in_type_list attrs |>
             List.map (fun { from_name; decl; loc; _ } ->
               (from_name, Some decl, loc)) in
@@ -974,7 +974,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
         []
     else
       begin
-        type_decls |> List.iter begin
+        type_decls' |> List.iter begin
           fun (decl : Parsetree.type_declaration) ->
             begin match String_map.find_opt decl.ptype_name.txt map with
             | None -> ()
