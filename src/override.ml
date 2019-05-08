@@ -2,6 +2,12 @@ let override_name = "[%%override]"
 
 let recursive_name = "[%%recursive]"
 
+let attr_remove = "remove"
+
+let attr_rewrite = "rewrite"
+
+let attr_from = "from"
+
 (*
 Adapted from ppx_import
 https://github.com/ocaml-ppx/ppx_import/
@@ -580,11 +586,11 @@ let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
     match decl.decl.type_manifest with
     | Some typ ->
         let attrs : Parsetree.attributes =
-          if Ast_convenience.has_attr "rewrite" attrs && not (Ast_convenience.has_attr "from" attrs) then
+          if Ast_convenience.has_attr attr_rewrite attrs && not (Ast_convenience.has_attr attr_from attrs) then
             let imported_type = Ast_helper.Typ.constr
                 (ident_of_name from_name)
                 params in
-            attrs @ [(mkloc "from", PTyp imported_type)]
+            attrs @ [(mkloc attr_from, PTyp imported_type)]
           else
             attrs in
         Some (core_type_of_type_expr conversion_context typ), attrs
@@ -819,7 +825,7 @@ let with_constraints (table : Symbol_table.t)
 let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
   type_decls |> List.filter_map begin
     fun (decl : Parsetree.type_declaration) ->
-      match Ast_convenience.find_attr "rewrite" decl.ptype_attributes with
+      match Ast_convenience.find_attr attr_rewrite decl.ptype_attributes with
       | Some (PStr []) ->
           begin match rewrite_system_ref with
           | None ->
@@ -827,18 +833,18 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
                 "[@@rewrite] should appear in the scope of [%%override] or [%%import] or [%%include] or [%%rewrite]."
           | Some rewrite_system_ref ->
               let decl_pattern = Ast_helper.Typ.constr (ident_of_name decl.ptype_name) (List.map fst decl.ptype_params) in
-              if Ast_convenience.has_attr "remove" decl.ptype_attributes then
+              if Ast_convenience.has_attr attr_remove decl.ptype_attributes then
                 let rhs =
-                  match find_attr_type ~loc:decl.ptype_loc "from" decl.ptype_attributes with
+                  match find_attr_type ~loc:decl.ptype_loc attr_from decl.ptype_attributes with
                   | Some rhs -> rhs
                   | None -> assert false in
                 rewrite_system_ref := (decl_pattern, rhs) :: !rewrite_system_ref;
                 None
               else
                 let lhs, attributes =
-                  match find_attr_type ~loc:decl.ptype_loc "from" decl.ptype_attributes with
+                  match find_attr_type ~loc:decl.ptype_loc attr_from decl.ptype_attributes with
                   | Some lhs ->
-                      lhs, pop_attr "from" decl.ptype_attributes
+                      lhs, pop_attr attr_from decl.ptype_attributes
                   | None ->
                       let lhs =
                         match decl.ptype_manifest with
@@ -851,7 +857,7 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
                             lhs |> map_typ_constr_ident (map_loc (remove_prefix modident)) in
                       lhs, decl.ptype_attributes in
                 rewrite_system_ref := (lhs, decl_pattern) :: !rewrite_system_ref;
-                Some { decl with ptype_attributes = pop_attr "rewrite" attributes }
+                Some { decl with ptype_attributes = pop_attr attr_rewrite attributes }
           end
       | _ -> Some decl
   end
@@ -861,7 +867,7 @@ let type_decls_has_co (type_decls : Parsetree.type_declaration list) =
   | { ptype_name = { txt = "co"; _ };
       ptype_manifest = None;
       ptype_attributes; _ } :: ((_ :: _) as others)
-    when not (Ast_convenience.has_attr "from" ptype_attributes) ->
+    when not (Ast_convenience.has_attr attr_from ptype_attributes) ->
       others, Some ptype_attributes
   | _ -> type_decls, None
 
@@ -873,15 +879,15 @@ let list_type_decls_to_import map modident type_decls =
     | _ -> Location.raise_errorf ~loc "Types to import should have no manifest"
     end;
     let from_name, attrs =
-      match find_attr_type ~loc "from" pdecl.ptype_attributes with
+      match find_attr_type ~loc attr_from pdecl.ptype_attributes with
       | None -> pdecl.ptype_name, pdecl.ptype_attributes
       | Some { ptyp_desc =
             Ptyp_constr ({ txt = Lident name; loc }, []); _ } ->
               { loc; txt = name },
-          if Ast_convenience.has_attr "rewrite" pdecl.ptype_attributes then
+          if Ast_convenience.has_attr attr_rewrite pdecl.ptype_attributes then
             pdecl.ptype_attributes
           else
-            pop_attr "from" pdecl.ptype_attributes
+            pop_attr attr_from pdecl.ptype_attributes
       | _ ->
           Location.raise_errorf ~loc "%s: Type name expected" override_name in
     let decl = find_type from_name map modident in
@@ -928,7 +934,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
         import_type_decl import modident rewrite_context overriden_ref
           defined_ref
       end
-    else if type_decls |> List.exists (decl_has_attr "remove") then
+    else if type_decls |> List.exists (decl_has_attr attr_remove) then
       let type_list =
         match and_co with
         | None ->
@@ -951,7 +957,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
             | Some decl -> decl.imported <- true
         end
       end;
-      if type_decls |> List.exists (decl_has_attr "rewrite") then
+      if type_decls |> List.exists (decl_has_attr attr_rewrite) then
         type_list |> List.map begin fun (name, decl, loc) ->
           Ast_helper.with_default_loc loc begin fun () ->
             let from_type =
@@ -965,9 +971,9 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
                       core_type_of_type_expr
                         (create_type_conversion_context rewrite_context) typ in
             Ast_helper.Type.mk name ~attrs:[
-              mkloc "from", PTyp from_type;
-              mkloc "rewrite", PStr [];
-              mkloc "remove", PStr []]
+              mkloc attr_from, PTyp from_type;
+              mkloc attr_rewrite, PStr [];
+              mkloc attr_remove, PStr []]
           end
         end
       else
