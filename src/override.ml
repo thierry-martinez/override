@@ -860,7 +860,7 @@ let type_decls_has_co (type_decls : Parsetree.type_declaration list) =
   match List.rev type_decls with
   | { ptype_name = { txt = "co"; _ };
       ptype_manifest = None;
-      ptype_attributes; _ } :: others
+      ptype_attributes; _ } :: ((_ :: _) as others)
     when not (Ast_convenience.has_attr "from" ptype_attributes) ->
       others, Some ptype_attributes
   | _ -> type_decls, None
