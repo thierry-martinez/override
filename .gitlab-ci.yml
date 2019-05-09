@@ -1,10 +1,10 @@
-.build and test: &build and test def
+.build and test: &build_and_test_def
   script:
     - docker run --rm -v $PWD:/override ocaml/opam2:$ocaml_version
         /override/ci-scripts/build_and_test.sh file:///override/
 
 build and test on 4.07:
-  <<: *build and test def
+  <<: *build_and_test_def
   variables:
     ocaml_version: 4.07
 
