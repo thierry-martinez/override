@@ -108,11 +108,6 @@ let rec resolve_alias ~loc env (module_type : Types.module_type) =
     end
   | _ -> module_type
 
-type modinfo = {
-    ident : Longident.t Location.loc;
-    modtype : Types.module_type;
-  }
-
 let locate_sig env (ident : Longident.t Location.loc) =
   match ident with { loc; txt = lid } ->
     match try_find_module ~loc env lid with
@@ -785,35 +780,47 @@ type mapper_context = {
     rewrite_env : rewrite_env option;
   }
 
-type modenv = {
+type modtype = {
     env : Env.t;
-    modinfo : modinfo;
+    modtype : Types.module_type;
+  }
+
+type modenv = {
+    ident : Longident.t Location.loc;
+    modtype : modtype option;
   }
 
 let get_functor ~loc modenv name =
   let y, modtype =
-    match resolve_alias ~loc modenv.env modenv.modinfo.modtype with
-    | Mty_functor (y, t, ty) -> y, ty
-    | _ ->
-        Location.raise_errorf ~loc "%s: %a is not a functor"
-          override_name Printtyp.longident modenv.modinfo.ident.txt in
-  let modinfo = {
-    ident = modenv.modinfo.ident |> map_loc
+    match modenv.modtype with
+    | None -> None, None
+    | Some { env; modtype } ->
+        match resolve_alias ~loc env modtype with
+        | Mty_functor (y, t, modtype) ->
+            Some y, Some { env; modtype }
+        | _ ->
+            Location.raise_errorf ~loc "%s: %a is not a functor"
+              override_name Printtyp.longident modenv.ident.txt in
+  let modenv = {
+    ident = modenv.ident |> map_loc
       (fun ident : Longident.t -> Lapply (ident, Lident name));
     modtype } in
-  y, { modenv with modinfo }
+  y, modenv
 
 let get_signature ~loc modenv =
-  match resolve_alias ~loc modenv.env modenv.modinfo.modtype with
-  | Mty_signature s -> s
-  | Mty_functor _ ->
-      Location.raise_errorf ~loc
-        "%s: %a is a functor" override_name Printtyp.longident
-        modenv.modinfo.ident.txt
-  | _ -> assert false
+  match modenv.modtype with
+  | None -> None
+  | Some { env; modtype } ->
+      match resolve_alias ~loc env modtype with
+      | Mty_signature s -> Some (env, s)
+      | Mty_functor _ ->
+          Location.raise_errorf ~loc
+            "%s: %a is a functor" override_name Printtyp.longident
+            modenv.ident.txt
+      | _ -> assert false
 
 type override_context = {
-    modenv : modenv option;
+    modenv : modenv;
     name : string;
     mode : mode;
     rewrite_env : rewrite_env;
@@ -821,8 +828,8 @@ type override_context = {
     defined_ref : Symbol_set.t ref;
   }
 
-let make_context ?(defined_ref = ref Symbol_set.empty) modenv name mode
-    rewrite_env = {
+let make_context ?(defined_ref = ref Symbol_set.empty) modenv name
+    mode rewrite_env = {
   modenv; name; mode; rewrite_env;
   overriden_ref = ref Symbol_set.empty;
   defined_ref; }
@@ -1136,15 +1143,35 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       { loc; txt = { attrs; contents }} ->
         match contents with
         | Contents contents ->
-          let signature = context.modenv |> Option.map begin fun modenv ->
-            modenv, get_signature ~loc modenv |> Symbol_table.of_signature
-          end in
+          let signature =
+            get_signature ~loc context.modenv |>
+            Option.map (fun (env, s) -> env, Symbol_table.of_signature s) in
           let contents = override_contents context signature contents in
+          let make_include with_constraints =
+            let module_expr = module_of_ident ~loc context.modenv.ident in
+            let modident =
+              Ast_wrapper.module_expr_of_longident context.modenv.ident in
+            let type_of () =
+              Ast_helper.Mty.typeof_
+                (Ast_helper.Mod.structure [
+                 Ast_helper.Str.include_ (
+                   Ast_helper.Incl.mk modident)]) in
+            let module_expr =
+              match with_constraints with
+              | [] ->
+                  Wrapper.choose (fun () -> modident) (fun () -> type_of ())
+              | _ ->
+                  Wrapper.build_module_expr (Wrapper.mkattr ~loc (
+                    Wrapper.Constraint (
+                      Lazy.from_val module_expr,
+                      Ast_helper.Mty.with_ (type_of ())
+                             with_constraints))) in
+            include_module ~loc module_expr in
           let contents =
             match context.mode, signature with
-            | Import, _
-            | _, None -> contents
-            | _, Some (modenv, signature) ->
+            | Import, _ -> contents
+            | _, None -> make_include [] :: contents (* ocamldep *)
+            | _, Some (_env, signature) ->
                 if signature.table.only_types &&
                   signature.table.types |> String_map.for_all begin
                     fun _ (decl : Symbol_table.type_decl) ->
@@ -1158,43 +1185,24 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                   let symbols =
                     Symbol_set.union !(context.overriden_ref)
                       !(context.defined_ref) in
-                  let module_expr = module_of_ident ~loc modenv.modinfo.ident in
                   let with_constraints =
-                    with_constraints signature.table modenv.modinfo.ident
+                    with_constraints signature.table context.modenv.ident
                       conversion_context symbols in
-                  let modident =
-                    Ast_wrapper.module_expr_of_longident
-                      modenv.modinfo.ident in
-                  let type_of () =
-                    Ast_helper.Mty.typeof_
-                      (Ast_helper.Mod.structure [
-                       Ast_helper.Str.include_ (
-                         Ast_helper.Incl.mk modident)]) in
-                  let module_expr =
-                    match with_constraints with
-                    | [] ->
-                        Wrapper.choose (fun () -> modident)
-                          (fun () -> type_of ())
-                    | _ ->
-                        Wrapper.build_module_expr (Wrapper.mkattr ~loc (
-                          Wrapper.Constraint (
-                            lazy module_expr,
-                            Ast_helper.Mty.with_ (type_of ())
-                                   with_constraints))) in
-                  include_module ~loc module_expr :: contents in
+                  make_include with_constraints :: contents in
           structure_of_contents ~loc contents
         | Functor (x, t, e) ->
             let context =
-              match context.modenv with
-              | None -> context
-              | Some modenv ->
-                  let y, modenv = get_functor ~loc modenv x.txt in
-                  let rewrite_env = { context.rewrite_env with context =
-                    { context.rewrite_env.context with subst_mod =
-                      Longident_map.add (Longident.Lident (Ident.name y))
-                        (Longident.Lident x.txt)
-                        context.rewrite_env.context.subst_mod }} in
-                  { context with modenv = Some modenv; rewrite_env } in
+              let y, modenv = get_functor ~loc context.modenv x.txt in
+              let rewrite_env =
+                match y with
+                | None -> context.rewrite_env
+                | Some y ->
+                    { context.rewrite_env with context =
+                      { context.rewrite_env.context with subst_mod =
+                        Longident_map.add (Longident.Lident (Ident.name y))
+                          (Longident.Lident x.txt)
+                          context.rewrite_env.context.subst_mod }} in
+              { context with modenv; rewrite_env } in
             let e' = override_module_expr context e in
             Wrapper.build_module_expr (Wrapper.mkattr ~loc (
               Wrapper.Functor (x, t, e')))
@@ -1207,29 +1215,25 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               "%s: Only functors and structures are supported." override_name
 
   and override_contents (context : override_context)
-      (signature : (modenv * Symbol_table.signature) option)
+      (signature : (Env.t * Symbol_table.signature) option)
       (contents : Wrapper.contents) =
     contents |> List.map begin fun (item : Wrapper.item) ->
       let item_desc = Wrapper.destruct item in
       let loc = item_desc.loc in
       let mk_type rec_flag type_decls =
         let type_decls =
-          match signature with
-          | None -> type_decls
-          | Some (modenv, _) ->
-              apply_rewrite_attr ~loc ~modident:modenv.modinfo.ident.txt
-                (Some context.rewrite_env.rewrite_system_ref)
-                type_decls in
+          apply_rewrite_attr ~loc ~modident:context.modenv.ident.txt
+            (Some context.rewrite_env.rewrite_system_ref)
+            type_decls in
         if type_decls = [] then
           Wrapper.empty ~loc
         else
           Wrapper.build { loc; txt = Type (rec_flag, type_decls)} in
       match item_desc.txt, signature with
-      | Type (rec_flag, type_decls), Some (modenv, signature) ->
+      | Type (rec_flag, type_decls), Some (_env, signature) ->
           let rewrite_context = current_rewrite_context context.rewrite_env in
           prepare_type_decls signature.table.types type_decls
-            modenv.modinfo.ident.txt
-            (mk_type rec_flag)
+            context.modenv.ident.txt (mk_type rec_flag)
             context.overriden_ref context.defined_ref rewrite_context
       | Module binding, _ ->
           let desc = Wrapper.destruct_module_binding binding in
@@ -1237,9 +1241,9 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               desc.txt.contents.name.txt !(context.overriden_ref);
           [item]
       | Extension (({ txt = "types"; _ }, PStr []), attrs),
-        Some (modenv, signature) ->
+        Some (_env, signature) ->
           let modident =
-            modident_if_not_self_reference modenv.modinfo.ident.txt in
+            modident_if_not_self_reference context.modenv.ident.txt in
           let rewrite_context = current_rewrite_context context.rewrite_env in
           signature.groups |> List.filter_map begin
             fun (group : Symbol_table.type_decl_group) ->
@@ -1259,7 +1263,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           let contents =
             Wrapper.destruct_payload ~loc payload |>
             override_contents context signature in
-          if context.modenv = None then
+          if context.modenv.modtype = None then (* ocamldep *)
             contents
           else
             Option.to_list (make_recursive ~loc contents attrs)
@@ -1272,17 +1276,17 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               context.overriden_ref :=
                 Symbol_set.add_module name.txt !(context.overriden_ref);
               let submodenv =
-                match signature with
-                | None -> None
-                | Some (modenv, signature) ->
+                let modtype =
+                  match signature with
+                  | None -> None
+                  | Some (env, signature) ->
                     let moddecl =
                       find_module name signature.table.modules
-                        modenv.modinfo.ident.txt in
-                    let submod = {
-                      ident = modenv.modinfo.ident |> map_loc
-                        (fun ident : Longident.t -> Ldot (ident, name.txt));
-                      modtype = moddecl.md_type } in
-                    Some { modenv with modinfo = submod } in
+                        context.modenv.ident.txt in
+                    Some { env; modtype = moddecl.md_type } in
+                { ident = context.modenv.ident |> map_loc
+                    (fun ident : Longident.t -> Ldot (ident, name.txt));
+                  modtype } in
               let defined_ref =
                 match mode with
                 | Override -> None
@@ -1301,6 +1305,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       (item : Wrapper.item) =
     let item_desc = Wrapper.destruct item in
     let loc = item_desc.loc in
+    let result =
     match item_desc.txt with
     | Extension (({ txt = "rewrite"; _ }, payload), attrs) ->
       let rewrite_env =
@@ -1330,14 +1335,14 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             let name = desc.txt.contents.name in
             let rewrite_env = force_rewrite_env context.rewrite_env in
             let modenv =
-              if context.ocamldep then
-                None
-              else
-                let env = Lazy.force lazy_env in
-                let modinfo =
-                  let ident = ident_of_name name in
-                  { ident; modtype = locate_sig env ident } in
-                Some { env; modinfo } in
+              let ident = ident_of_name name in
+              let modtype =
+                if context.ocamldep then
+                  None
+                else
+                  let env = Lazy.force lazy_env in
+                  Some { env; modtype = locate_sig env ident } in
+              { ident; modtype } in
             let rewrite_env' = derive_rewrite_env rewrite_env in
             let context = make_context modenv name.txt mode rewrite_env' in
             override_module rewrite_env context desc
@@ -1350,7 +1355,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         let type_decls =
           apply_rewrite_attr ~loc rewrite_system_ref type_decls in
         Wrapper.build { loc; txt = Type (rec_flag, type_decls)}
-    | _ -> item
+    | _ -> item in
+    result
 end
 
 module Structure_mapper = Make_mapper (Ast_wrapper.Structure)
