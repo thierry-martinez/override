@@ -8,5 +8,5 @@ bug-reports: "https://gitlab.inria.fr/tmartine/override/issues"
 license: "BSD"
 dev-repo: "git+https://gitlab.inria.fr/tmartine/override.git"
 depends: [
-  "dune" {>= "1.2"}
+  "dune" "ppxlib" "stdcompat" "ppx_tools"
   "ocaml" {>= "4.02.0" & < "4.08.0"}]
