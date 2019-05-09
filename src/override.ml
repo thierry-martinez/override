@@ -124,24 +124,17 @@ let locate_sig env (ident : Longident.t Location.loc) =
             Location.raise_errorf ~loc "%s: cannot locate module %a"
               override_name Printtyp.longident lid
 
-(*
 let rec root_of_longident (lid : Longident.t) =
   match lid with
   | Lident ident -> ident
   | Ldot (lid, _)
   | Lapply (lid, _) -> root_of_longident lid
 
-let is_self_reference lid =
-  match lid with
-  | Ldot (lid, _) ->
-    let mn = String.uncapitalize_ascii (root_of_longident lid) in
-    let fn = !Location.input_name |>
-      Filename.basename |>
-      Filename.chop_extension |>
-      String.uncapitalize_ascii in
-    mn = fn
-  | _ -> false
-*)
+let is_self_reference (lid : Longident.t) =
+  let mn = String.uncapitalize_ascii (root_of_longident lid) in
+  let fn = !Location.input_name |> Filename.basename |>
+    Filename.chop_extension |> String.uncapitalize_ascii in
+  mn = fn
 
 module Int_map = Map.Make (struct
   type t = int
@@ -632,10 +625,11 @@ let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
         Some (core_type_of_type_expr conversion_context typ), attrs
     | None ->
         let manifest =
-          Ast_helper.Typ.constr
-            (qualified_ident_of_name modident from_name)
-            params in
-        Some manifest, attrs in
+          modident |> Option.map begin fun modident ->
+            Ast_helper.Typ.constr (qualified_ident_of_name modident from_name)
+              params
+          end in
+        manifest, attrs in
   let result = ({
     ptype_name = new_name; ptype_params; ptype_kind; ptype_manifest;
     ptype_cstrs = [];
@@ -969,8 +963,15 @@ let include_co_in_type_list attrs type_list =
 let decl_has_attr attr (decl : Parsetree.type_declaration) =
   Ast_convenience.has_attr attr decl.ptype_attributes
 
+let modident_if_not_self_reference modident =
+  if is_self_reference modident then
+    None
+  else
+    Some modident
+
 let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
     rewrite_context =
+  let modident_opt = modident_if_not_self_reference modident in
   let type_decls', and_co = type_decls_has_co type_decls in
   let type_decls =
     if type_decls |> List.exists begin
@@ -985,7 +986,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
         | None -> type_list
         | Some attrs -> include_co_in_type_list attrs type_list in
       type_list |> List.map begin fun import ->
-        import_type_decl import modident rewrite_context overriden_ref
+        import_type_decl import modident_opt rewrite_context overriden_ref
           defined_ref
       end
     else if type_decls |> List.exists (decl_has_attr attr_remove) then
@@ -1237,11 +1238,13 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           [item]
       | Extension (({ txt = "types"; _ }, PStr []), attrs),
         Some (modenv, signature) ->
+          let modident =
+            modident_if_not_self_reference modenv.modinfo.ident.txt in
           let rewrite_context = current_rewrite_context context.rewrite_env in
           signature.groups |> List.filter_map begin
             fun (group : Symbol_table.type_decl_group) ->
               match
-                decl_of_group ~loc attrs modenv.modinfo.ident.txt
+                decl_of_group ~loc attrs modident
                   rewrite_context group context.overriden_ref
                   context.defined_ref with
               | [] -> None

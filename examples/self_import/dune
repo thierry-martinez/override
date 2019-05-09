@@ -1,0 +1,4 @@
+(library
+  (name self_import)
+  (preprocess (staged_pps override))
+  (flags -dsource))

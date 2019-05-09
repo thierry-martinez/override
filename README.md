@@ -285,7 +285,7 @@ end
 
 ## `module%include`, `module%import`, `[%%recursive]`: flattening structure
 
-The notation `include` overrides a module and include it in the
+The notation `module%include` overrides a module and include it in the
 current module.
 In the following example, the types `location` and `'a loc` are then
 defined at top-level (and not in a module `Location`).
@@ -296,8 +296,8 @@ module%include Location = struct
 end
 ```
 
-The notation `import` overrides a module in the current module without
-including the definitions that are not explicitely overriden.
+The notation `module%import` overrides a module in the current module
+without including the definitions that are not explicitely overriden.
 In the following example, the type `loc` is defined at top-level as an
 alias for `Location.t`, but the type `'a loc` is not imported.
 
@@ -331,6 +331,22 @@ recursive type definition.
 ```
 
 Note that the notation becomes `[%%recursive: ...]` in a signature.
+
+## Self import of types declared in the interface file
+
+The notation `module%import` is useful in particular to import the types
+declared in the interface file. For example, the implementation file
+[`self_import.ml`] can import the types declared in [`self_import.mli`]
+as in the following example.
+
+[`self_import.ml`]: https://gitlab.inria.fr/tmartine/override/blob/master/examples/self_import/self_import.ml
+[`self_import.mli`]: https://gitlab.inria.fr/tmartine/override/blob/master/examples/self_import/self_import.mli
+
+```ocaml
+module%import Self_import = struct
+  [%%types]
+end
+```
 
 ## `[@@rewrite]`: rewriting types
 
@@ -411,8 +427,8 @@ end
 (* Rewriting rules at this point: a Asttypes.loc -> 'a Location.loc *)
 ```
 
-By giving a type manifest (i.e., an alias) to removed types, we can specify
-how the type is rewritten.
+If the removed type is declared as a type alias, the right-hand side of the
+declaration is used as the right-hand side of the rewriting rule.
 This can be useful for instance to annotate the occurrences of some types .
 
 For instance, the following example (adapted from [`ppx_import`]) derives
