@@ -61,6 +61,8 @@ module type S = sig
 
   val map : Ast_mapper.mapper -> contents -> contents
 
+  val format : Format.formatter -> contents -> unit
+
   val destruct_payload : loc:Location.t -> Parsetree.payload -> contents
 
   val destruct_module_binding : module_binding -> wrapped_module_binding
@@ -129,6 +131,8 @@ module Structure : S with module Types = Structure_types = struct
 
   let map (mapper : Ast_mapper.mapper) item =
     mapper.structure mapper item
+
+  let format = Pprintast.structure
 
   let destruct_payload ~loc (payload : Parsetree.payload) =
     let structure_expected preceding_symbol =
@@ -218,6 +222,8 @@ module Signature : S with module Types = Signature_types = struct
 
   let map (mapper : Ast_mapper.mapper) item =
     mapper.signature mapper item
+
+  let format = Pprintast.signature
 
   let destruct_payload ~loc (payload : Parsetree.payload) =
     match payload with
