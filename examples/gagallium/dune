@@ -1,4 +1,3 @@
 (executable
   (name gagallium)
-  (flags -dsource)
   (preprocess (staged_pps override)))
