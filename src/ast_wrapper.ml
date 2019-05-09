@@ -106,7 +106,7 @@ module Structure : S with module Types = Structure_types = struct
 
   include Ast_definitions (Types)
 
-  let empty ~loc : item = [%stri ()]
+  let empty ~loc : item = [%stri include struct end]
 
   let destruct (item : item) : item_desc Location.loc =
     let txt =

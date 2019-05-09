@@ -124,7 +124,29 @@ let locate_sig env (ident : Longident.t Location.loc) =
             Location.raise_errorf ~loc "%s: cannot locate module %a"
               override_name Printtyp.longident lid
 
-module Int_map = Map.Make (struct type t = int let compare = compare end)
+(*
+let rec root_of_longident (lid : Longident.t) =
+  match lid with
+  | Lident ident -> ident
+  | Ldot (lid, _)
+  | Lapply (lid, _) -> root_of_longident lid
+
+let is_self_reference lid =
+  match lid with
+  | Ldot (lid, _) ->
+    let mn = String.uncapitalize_ascii (root_of_longident lid) in
+    let fn = !Location.input_name |>
+      Filename.basename |>
+      Filename.chop_extension |>
+      String.uncapitalize_ascii in
+    mn = fn
+  | _ -> false
+*)
+
+module Int_map = Map.Make (struct
+  type t = int
+  let compare = compare
+end)
 
 module String_map = Map.Make (String)
 
@@ -180,7 +202,9 @@ let equal_row_field equal_core_type
   | Rinherit t0, Rinherit t1 -> equal_core_type t0 t1
   | _ -> false
 
-let equiv_core_type equiv_rec (t0 : Parsetree.core_type) (t1 : Parsetree.core_type) =
+let equiv_core_type equiv_rec (t0 : Parsetree.core_type)
+    (t1 : Parsetree.core_type) =
+  equal_attributes equiv_rec t0.ptyp_attributes t1.ptyp_attributes &&
   match t0.ptyp_desc, t1.ptyp_desc with
   | Ptyp_any, Ptyp_any -> true
   | Ptyp_var x0, Ptyp_var x1 -> x0 = x1
@@ -210,10 +234,11 @@ let equiv_core_type equiv_rec (t0 : Parsetree.core_type) (t1 : Parsetree.core_ty
 let rec equal_core_type t0 t1 =
   equiv_core_type equal_core_type t0 t1
 
-let rec match_core_type subst_ref (p : Parsetree.core_type) (t : Parsetree.core_type) =
+let rec match_core_type subst_ref (p : Parsetree.core_type)
+    (t : Parsetree.core_type) =
   match p.ptyp_desc with
   | Ptyp_any -> true
-  | Ptyp_var x -> 
+  | Ptyp_var x ->
       begin match String_map.find_opt x !subst_ref with
       | Some t' ->
           equal_core_type t t'
@@ -233,7 +258,7 @@ let subst_core_type subst t =
           | Some t' -> Some t'
           | None -> None
           end
-      | _ -> None 
+      | _ -> None
     with
     | Some t' -> t'
     | None -> Ast_mapper.default_mapper.typ mapper t in
@@ -242,17 +267,27 @@ let subst_core_type subst t =
 
 type rewrite_system = (Parsetree.core_type * Parsetree.core_type) list
 
-let rec rewrite_once (ty : Parsetree.core_type) rewrite_system : Parsetree.core_type option =
+let rec rewrite_once (ty : Parsetree.core_type) rewrite_system
+    : Parsetree.core_type option =
   match rewrite_system with
   | [] -> None
   | (pat, res) :: tail ->
       let subst_ref = ref String_map.empty in
-      if match_core_type subst_ref pat ty then
-        Some (subst_core_type !subst_ref res)
-      else
-        rewrite_once ty tail
+      match
+        if match_core_type subst_ref pat ty then
+          let res = subst_core_type !subst_ref res in
+          if equal_core_type ty res then
+            None
+          else
+            Some res
+        else
+          None
+      with
+      | None -> rewrite_once ty tail
+      | res -> res
 
-let rec rewrite rewrite_system (ty : Parsetree.core_type) : Parsetree.core_type =
+let rec rewrite rewrite_system (ty : Parsetree.core_type)
+    : Parsetree.core_type =
   match ty.ptyp_desc with
   | Ptyp_constr (ident, args) ->
       let args = args |> List.map (rewrite rewrite_system) in
@@ -521,6 +556,7 @@ type import_type_decl = {
     decl : Symbol_table.type_decl;
     params : Parsetree.core_type list option;
     loc : Location.t;
+    pdecl : Parsetree.type_declaration option;
   }
 
 let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
@@ -613,10 +649,11 @@ let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
 
 let import_of_decl ~loc (decl : Symbol_table.type_decl) attrs =
   let name : string Location.loc = { loc; txt = decl.name } in
-  { loc; new_name = name; from_name = name; attrs; decl; params = None }
+  { loc; new_name = name; from_name = name; attrs; decl; params = None;
+    pdecl = None; }
 
-let decl_of_group ~loc attrs modident rewrite_context (group : Symbol_table.type_decl_group)
-    overriden_ref defined_ref =
+let decl_of_group ~loc attrs modident rewrite_context
+    (group : Symbol_table.type_decl_group) overriden_ref defined_ref =
   group.decls |> List.filter_map begin fun (decl : Symbol_table.type_decl) ->
     if decl.imported then
       None
@@ -677,13 +714,15 @@ let rec remove_prefix prefix (ident : Longident.t) =
   | Ldot (lid, name) ->
       if lid = prefix then Lident name
       else Ldot (remove_prefix prefix lid, name)
-  | Lapply (lid, lid') -> Lapply (remove_prefix prefix lid, remove_prefix prefix lid')
+  | Lapply (lid, lid') ->
+      Lapply (remove_prefix prefix lid, remove_prefix prefix lid')
 
 let map_typ_constr_ident p t =
   let typ (mapper : Ast_mapper.mapper) (t : Parsetree.core_type) =
     match t.ptyp_desc with
     | Ptyp_constr (ident, args) ->
-        { t with ptyp_desc = Ptyp_constr (p ident, List.map (mapper.typ mapper) args) }
+        { t with ptyp_desc =
+          Ptyp_constr (p ident, List.map (mapper.typ mapper) args) }
     | _ -> Ast_mapper.default_mapper.typ mapper t in
   let mapper = { Ast_mapper.default_mapper with typ } in
   mapper.typ mapper t
@@ -692,13 +731,15 @@ let rec map_ident map_name (ident : Longident.t) : Longident.t =
   match ident with
   | Lident name -> map_name name
   | Ldot (lid, name) -> Ldot (map_ident map_name lid, name)
-  | Lapply (lid, lid') -> Lapply (map_ident map_name lid, map_ident map_name lid')
+  | Lapply (lid, lid') ->
+      Lapply (map_ident map_name lid, map_ident map_name lid')
 
-let rec map_ident_leaf map_mod_name map_leaf_name (ident : Longident.t) : Longident.t =
+let rec map_ident_leaf map_mod_name map_leaf_name (ident : Longident.t)
+    : Longident.t =
   match ident with
   | Lident name -> map_leaf_name name
   | Ldot (lid, name) -> Ldot (map_ident map_mod_name lid, name)
-  | Lapply _ -> invalid_arg "map_ident_lead" 
+  | Lapply _ -> invalid_arg "map_ident_lead"
 
 let prefix_if_defined_locally prefix (defined : Symbol_set.t)
     (type_pattern : Parsetree.core_type) : Parsetree.core_type =
@@ -714,10 +755,11 @@ let prefix_if_defined_locally prefix (defined : Symbol_set.t)
       else
         Lident typ_name)
 
-let promote_rewrite rewrite_ref prefix rhs_prefix overriden defined new_rewrites =
-  let prefixed_rewrites = new_rewrites |> List.rev_map begin fun (lhs, rhs) -> 
+let promote_rewrite rewrite_ref prefix rhs_prefix overriden defined
+    new_rewrites =
+  let prefixed_rewrites = new_rewrites |> List.rev_map begin fun (lhs, rhs) ->
     let lhs = prefix_if_defined_locally prefix overriden lhs in
-    let rhs = 
+    let rhs =
       if rhs_prefix then prefix_if_defined_locally prefix defined rhs
       else rhs in
     (lhs, rhs)
@@ -832,32 +874,44 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
               Location.raise_errorf ~loc:decl.ptype_loc
                 "[@@rewrite] should appear in the scope of [%%override] or [%%import] or [%%include] or [%%rewrite]."
           | Some rewrite_system_ref ->
-              let decl_pattern = Ast_helper.Typ.constr (ident_of_name decl.ptype_name) (List.map fst decl.ptype_params) in
+              let decl_pattern =
+                Ast_helper.Typ.constr (ident_of_name decl.ptype_name)
+                  (List.map fst decl.ptype_params) in
               if Ast_convenience.has_attr attr_remove decl.ptype_attributes then
                 let rhs =
-                  match find_attr_type ~loc:decl.ptype_loc attr_from decl.ptype_attributes with
+                  match find_attr_type ~loc:decl.ptype_loc attr_from
+                      decl.ptype_attributes with
                   | Some rhs -> rhs
                   | None -> assert false in
-                rewrite_system_ref := (decl_pattern, rhs) :: !rewrite_system_ref;
+                rewrite_system_ref := (decl_pattern, rhs)
+                  :: !rewrite_system_ref;
                 None
               else
                 let lhs, attributes =
-                  match find_attr_type ~loc:decl.ptype_loc attr_from decl.ptype_attributes with
+                  match
+                    find_attr_type ~loc:decl.ptype_loc attr_from
+                      decl.ptype_attributes
+                  with
                   | Some lhs ->
                       lhs, pop_attr attr_from decl.ptype_attributes
                   | None ->
                       let lhs =
                         match decl.ptype_manifest with
-                        | None -> Location.raise_errorf ~loc:decl.ptype_loc "[@@rewrite] needs a manifest"
+                        | None ->
+                            Location.raise_errorf ~loc:decl.ptype_loc
+                              "[@@rewrite] needs a manifest"
                         | Some manifest -> manifest in
                       let lhs =
                         match modident with
                         | None -> lhs
                         | Some modident ->
-                            lhs |> map_typ_constr_ident (map_loc (remove_prefix modident)) in
+                            lhs |> map_typ_constr_ident (map_loc (
+                              remove_prefix modident)) in
                       lhs, decl.ptype_attributes in
-                rewrite_system_ref := (lhs, decl_pattern) :: !rewrite_system_ref;
-                Some { decl with ptype_attributes = pop_attr attr_rewrite attributes }
+                rewrite_system_ref := (lhs, decl_pattern)
+                  :: !rewrite_system_ref;
+                let ptype_attributes = pop_attr attr_rewrite attributes in
+                Some { decl with ptype_attributes }
           end
       | _ -> Some decl
   end
@@ -891,7 +945,7 @@ let list_type_decls_to_import map modident type_decls =
       | _ ->
           Location.raise_errorf ~loc "%s: Type name expected" override_name in
     let decl = find_type from_name map modident in
-    { from_name; new_name = pdecl.ptype_name; attrs; decl;
+    { from_name; new_name = pdecl.ptype_name; attrs; decl; pdecl = Some pdecl;
       loc; params = Some (List.map fst pdecl.ptype_params) }
   end
 
@@ -942,35 +996,47 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
               fun (decl : Parsetree.type_declaration) ->
                 decl.ptype_name,
                 String_map.find_opt decl.ptype_name.txt map,
-                decl.ptype_loc
+                decl.ptype_loc,
+                Some decl
             end
         | Some attrs ->
             list_type_decls_to_import map modident type_decls' |>
             include_co_in_type_list attrs |>
-            List.map (fun { from_name; decl; loc; _ } ->
-              (from_name, Some decl, loc)) in
+            List.map (fun { from_name; decl; loc; pdecl; _ } ->
+              (from_name, Some decl, loc, pdecl)) in
       begin
         type_list |> List.iter begin
-          fun (_, (decl : Symbol_table.type_decl option), _) ->
+          fun (_, (decl : Symbol_table.type_decl option), _, _) ->
             match decl with
             | None -> ()
             | Some decl -> decl.imported <- true
         end
       end;
       if type_decls |> List.exists (decl_has_attr attr_rewrite) then
-        type_list |> List.map begin fun (name, decl, loc) ->
+        type_list |> List.map begin
+          fun (name, decl, loc,
+               (pdecl : Parsetree.type_declaration option)) ->
           Ast_helper.with_default_loc loc begin fun () ->
-            let from_type =
-              match decl with
-              | None -> not_found kind_type name modident
-              | Some (decl : Symbol_table.type_decl) ->
-                  match decl.decl.type_manifest with
-                  | None ->
-                      Location.raise_errorf ~loc "Manifest expected"
-                  | Some typ ->
-                      core_type_of_type_expr
-                        (create_type_conversion_context rewrite_context) typ in
-            Ast_helper.Type.mk name ~attrs:[
+            let from_type, params =
+              match pdecl with
+              | Some { ptype_manifest = Some manifest; ptype_params; _ } ->
+                  manifest, ptype_params
+              | _ ->
+                  match decl with
+                  | None -> not_found kind_type name modident
+                  | Some (decl : Symbol_table.type_decl) ->
+                      match decl.decl.type_manifest with
+                      | None ->
+                          Location.raise_errorf ~loc "Manifest expected"
+                      | Some typ ->
+                          let conversion_context =
+                            create_type_conversion_context rewrite_context in
+                          core_type_of_type_expr conversion_context typ,
+                          ptype_params_of_ttype_decl conversion_context
+                            decl.decl in
+            overriden_ref := Symbol_set.add_type name.txt !overriden_ref;
+            defined_ref := Symbol_set.add_type name.txt !defined_ref;
+            Ast_helper.Type.mk name ~params ~attrs:[
               mkloc attr_from, PTyp from_type;
               mkloc attr_rewrite, PStr [];
               mkloc attr_remove, PStr []]
@@ -986,6 +1052,8 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
             | None -> ()
             | Some decl -> decl.imported <- true
             end;
+            overriden_ref :=
+              Symbol_set.add_type decl.ptype_name.txt !overriden_ref;
             defined_ref := Symbol_set.add_type decl.ptype_name.txt !defined_ref;
         end;
         type_decls
@@ -1151,7 +1219,10 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               apply_rewrite_attr ~loc ~modident:modenv.modinfo.ident.txt
                 (Some context.rewrite_env.rewrite_system_ref)
                 type_decls in
-        Wrapper.build { loc; txt = Type (rec_flag, type_decls)} in
+        if type_decls = [] then
+          Wrapper.empty ~loc
+        else
+          Wrapper.build { loc; txt = Type (rec_flag, type_decls)} in
       match item_desc.txt, signature with
       | Type (rec_flag, type_decls), Some (modenv, signature) ->
           let rewrite_context = current_rewrite_context context.rewrite_env in
