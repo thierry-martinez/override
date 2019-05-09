@@ -8,3 +8,9 @@ module%override Toto = struct
     let y = "2"
   end
 end
+
+let test () =
+  assert (Toto.x = 1);
+  assert (Toto.Tata.y = "2")
+
+let () = test ()

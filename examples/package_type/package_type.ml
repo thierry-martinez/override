@@ -28,3 +28,13 @@
 
     type package_type = _ [@@deriving show]
   end]
+
+let test () =
+  let loc = Location.none in
+  let ptyp =
+    match ([%type: (module S with type t1 = t2)] : Parsetree.core_type) with
+    | { ptyp_desc = Ptyp_package ptyp; _ } -> ptyp
+    | _ -> assert false in
+  assert (show_package_type ptyp = "(S, [(t1, t2)])")
+
+let () = test ()

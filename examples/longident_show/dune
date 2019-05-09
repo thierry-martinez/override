@@ -1,5 +1,4 @@
 (executable
   (name longident_show)
   (preprocess (staged_pps override ppx_deriving.show))
-  (libraries compiler-libs.common)
-  (flags -dsource))
+  (libraries compiler-libs.common))

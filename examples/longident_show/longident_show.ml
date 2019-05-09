@@ -4,6 +4,11 @@ module%override Longident = struct
   type t = _  [@@deriving show]
 end
 
-let () =
-  print_endline (Longident.show (Longident.parse "Foo.Bar.baz"))
-(* Longident.Ldot (Longident.Ldot (Longident.Lident ("Foo"), "Bar"), "baz") *)
+let test () =
+  assert (
+    Longident.show (Longident.parse "Foo.Bar.baz") =
+    {|(Longident.Ldot ((Longident.Ldot ((Longident.Lident "Foo"), "Bar")), "baz"))|}
+ )
+
+
+let () = test ()

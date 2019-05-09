@@ -1,4 +1,4 @@
-(library
+(executable
   (name gagallium)
-  (preprocess (staged_pps override))
-  (flags -dsource))
+  (flags -dsource)
+  (preprocess (staged_pps override)))

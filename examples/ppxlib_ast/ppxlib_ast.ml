@@ -26,9 +26,9 @@ recursive block" *)
     type 'a loc = _ [@@rewrite]
   end
 
-  module%import Longident = struc
+  module%import Longident = struct
     (* "- renaming a few types:
-        - - Longident.t -> longident" *)t
+        - - Longident.t -> longident" *)
     type longident = _ [@@from: t] [@@rewrite]
   end
 
@@ -48,5 +48,15 @@ recursive block" *)
   end
 
   module%import Parsetree = struct
+    type toplevel_phrase and co [@@remove]
+
     [%%types]
   end]
+       [@@deriving eq]
+
+let test () =
+  let loc = Location.none in
+  assert (equal_structure [%str (1, 2)] [%str (1, 2)]);
+  assert (not (equal_structure [%str (1, "a")] [%str (1, "b")]))
+
+let () = test ()

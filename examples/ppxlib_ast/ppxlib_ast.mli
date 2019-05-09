@@ -26,5 +26,7 @@
   end
 
   module%import Parsetree : sig
+    type toplevel_phrase and co [@@remove]
+
     [%%types]
   end]

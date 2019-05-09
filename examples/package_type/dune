@@ -1,5 +1,4 @@
-(library
+(executable
   (name package_type)
-  (preprocess (staged_pps override ppx_deriving.show))
-  (libraries compiler-libs.common)
-  (flags -dsource))
+  (preprocess (staged_pps override ppxlib.metaquot ppx_deriving.show))
+  (libraries compiler-libs.common))

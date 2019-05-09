@@ -23,3 +23,9 @@ module%override Parsetree = struct
 
   type toplevel_phrase = _ and co
 end
+
+let test () =
+  let loc = Location.none in
+  ignore (Parsetree.show_structure [%str ()])
+
+let () = test ()
