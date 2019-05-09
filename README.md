@@ -128,7 +128,7 @@ module%override Location = struct
 end
 ```
 
-## `and co` notation
+## `and co`: importing mutually recursive types
 
 Ending a `type` list with `and co` include the other types that are
 defined in the same mutually recursive definitions as one of the types
@@ -145,7 +145,7 @@ module%overrive Example = struct
 end
 ```
 
-## `[@@from: ... ]` notation
+## `[@@from: ... ]`: renaming types
 
 Names of the types can be changed: the type declaration introduces the
 new type and the imported name is carried by the `[@@from: ...]`
@@ -157,7 +157,7 @@ module%override Location = struct
 end
 ```
 
-## `[%%types]` notation
+## `[%%types]`: importing all the types from a module
 
 The notation `[%%types]` imports all the types defined in the
 currently overriden module, except types that have been overriden
@@ -243,7 +243,7 @@ themselves are not included. Since `Asttypes` and `Parsetree`
 interfaces have no implementations, there would have been a link-time
 failure if they were included.
 
-## Removing types
+## `[@@remove]`: removing types
 
 Types may be removed from signature with the annotation `[@@remove]`.
 Several types may be removed at once by listing them with `and`,
@@ -283,7 +283,7 @@ module%override Parsetree = struct
 end
 ```
 
-## Flattening structure
+## `module%include`, `module%import`, `[%%recursive]`: flattening structure
 
 The notation `include` overrides a module and include it in the
 current module.
@@ -332,7 +332,7 @@ recursive type definition.
 
 Note that the notation becomes `[%%recursive: ...]` in a signature.
 
-## Rewriting types with `[@@rewrite]` attribute
+## `[@@rewrite]`: rewriting types
 
 Type declarations can be annotated with `[@@rewrite]` attribute to use
 them as rewriting rules for subsequent type importations. Let's consider
