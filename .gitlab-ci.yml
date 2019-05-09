@@ -6,7 +6,7 @@
 build and test on 4.07:
   <<: *build_and_test_def
   variables:
-    ocaml_version: 4.07
+    ocaml_version: "4.07"
 
 opam pin and install:
   script:
