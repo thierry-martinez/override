@@ -1371,7 +1371,7 @@ let rec make_mapper (context : mapper_context) : Ast_mapper.mapper = {
 
 let () =
   Migrate_parsetree.Driver.register ~name:"override" ~position:(-10)
-    (module Migrate_parsetree.OCaml_current)
+    (module Migrate_parsetree.OCaml_407)
     (fun config _ ->
       make_mapper {
         ocamldep = config.tool_name = "ocamldep"; rewrite_env = None; })
