@@ -1,3 +1,13 @@
+module OCaml_version = Migrate_parsetree.OCaml_407
+
+module Ast_helper = OCaml_version.Ast.Ast_helper
+module Ast_mapper = OCaml_version.Ast.Ast_mapper
+module Asttypes = OCaml_version.Ast.Asttypes
+module Parsetree = OCaml_version.Ast.Parsetree
+
+module From = Migrate_parsetree.Convert
+    (OCaml_version) (Migrate_parsetree.OCaml_current)
+
 module type Ast_types = sig
   type item
 
@@ -110,7 +120,7 @@ module Structure : S with module Types = Structure_types = struct
 
   let empty ~loc : item = [%stri include struct end]
 
-  let destruct (item : item) : item_desc Location.loc =
+  let destruct (item : item) : wrapped_item =
     let txt =
       match item.pstr_desc with
       | Pstr_extension (ext, attrs) -> Extension (ext, attrs)
@@ -120,7 +130,7 @@ module Structure : S with module Types = Structure_types = struct
       | _ -> Other item in
     { loc = item.pstr_loc; txt }
 
-  let build (desc : item_desc Location.loc) =
+  let build (desc : wrapped_item) : item =
     let loc = desc.loc in
     match desc.txt with
     | Extension (ext, attrs) -> Ast_helper.Str.extension ~loc ~attrs ext
@@ -129,10 +139,11 @@ module Structure : S with module Types = Structure_types = struct
     | Include inc -> Ast_helper.Str.include_ ~loc inc
     | Other item -> Ast_helper.Str.mk ~loc item.pstr_desc
 
-  let map (mapper : Ast_mapper.mapper) item =
-    mapper.structure mapper item
+  let map (mapper : Ast_mapper.mapper) (contents : contents) : contents =
+    mapper.structure mapper contents
 
-  let format = Pprintast.structure
+  let format formatter contents =
+    Pprintast.structure formatter (From.copy_structure contents)
 
   let destruct_payload ~loc (payload : Parsetree.payload) =
     let structure_expected preceding_symbol =
@@ -223,7 +234,8 @@ module Signature : S with module Types = Signature_types = struct
   let map (mapper : Ast_mapper.mapper) item =
     mapper.signature mapper item
 
-  let format = Pprintast.signature
+  let format formatter contents =
+    Pprintast.signature formatter (From.copy_signature contents)
 
   let destruct_payload ~loc (payload : Parsetree.payload) =
     match payload with

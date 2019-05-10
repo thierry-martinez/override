@@ -1,8 +1,14 @@
-module%override Stdlib = struct
-  module%override Lexing = struct
-    [%%types] [@@deriving show]
+#if OCAML_VERSION >= (4, 07, 0)
+  module%override Stdlib = struct
+    module%override Lexing = struct
+      type position = _ [@@rewrite] [@@deriving show]
+    end
   end
-end
+#else
+  module%override Lexing = struct
+    type position = _ [@@rewrite] [@@deriving show]
+  end
+#endif
 
 module%override Longident = struct
   [%%types] [@@deriving show]

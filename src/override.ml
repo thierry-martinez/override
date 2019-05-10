@@ -1,3 +1,57 @@
+module OCaml_version = Migrate_parsetree.OCaml_407
+
+module To = Migrate_parsetree.Convert
+    (Migrate_parsetree.OCaml_current) (OCaml_version)
+
+let convert_arg_label (arg_label : Asttypes.arg_label)
+    : OCaml_version.Ast.Asttypes.arg_label =
+  match arg_label with
+  | Nolabel -> Nolabel
+  | Labelled s -> Labelled s
+  | Optional s -> Optional s
+
+let convert_closed_flag (closed_flag : Asttypes.closed_flag)
+    : OCaml_version.Ast.Asttypes.closed_flag =
+  match closed_flag with
+  | Closed -> Closed
+  | Open -> Open
+
+let convert_mutable_flag (mutable_flag : Asttypes.mutable_flag)
+    : OCaml_version.Ast.Asttypes.mutable_flag =
+  match mutable_flag with
+  | Immutable -> Immutable
+  | Mutable -> Mutable
+
+let convert_private_flag (private_flag : Asttypes.private_flag)
+    : OCaml_version.Ast.Asttypes.private_flag =
+  match private_flag with
+  | Private -> Private
+  | Public -> Public
+
+let convert_rec_flag (rec_flag : Asttypes.rec_flag)
+    : OCaml_version.Ast.Asttypes.rec_flag =
+  match rec_flag with
+  | Nonrecursive -> Nonrecursive
+  | Recursive -> Recursive
+
+let convert_payload (payload : Parsetree.payload)
+    : OCaml_version.Ast.Parsetree.payload =
+  match payload with
+  | PStr s -> PStr (To.copy_structure s)
+  | PSig s -> PSig (To.copy_signature s)
+  | PPat (p, e)  -> PPat (To.copy_pattern p, Option.map To.copy_expression e)
+  | PTyp t -> PTyp (To.copy_core_type t)
+
+let convert_attributes (attributes : Parsetree.attributes)
+    : OCaml_version.Ast.Parsetree.attributes =
+  attributes |> List.map begin fun (name, payload) ->
+    (name, convert_payload payload)
+  end
+
+module Ast_mapper = OCaml_version.Ast.Ast_mapper
+module Ast_helper = OCaml_version.Ast.Ast_helper
+module Parsetree = OCaml_version.Ast.Parsetree
+
 let override_name = "[%%override]"
 
 let recursive_name = "[%%recursive]"
@@ -355,7 +409,7 @@ let rec core_type_of_type_expr (context : type_conversion_context)
             | None -> Ast_helper.Typ.var var
             end
         | Tarrow (label, lhs, rhs, _) ->
-            Ast_helper.Typ.arrow label
+            Ast_helper.Typ.arrow (convert_arg_label label)
               (core_type_of_type_expr context lhs)
               (core_type_of_type_expr context rhs)
         | Ttuple xs ->
@@ -407,7 +461,7 @@ let rec core_type_of_type_expr (context : type_conversion_context)
             begin match !cl with
             | None ->
                 let fields, closed_flag = list_of_fields [] fields in
-                Ast_helper.Typ.object_ fields closed_flag
+                Ast_helper.Typ.object_ fields (convert_closed_flag closed_flag)
             | Some (path, args) -> Ast_helper.Typ.class_ (mkloc (Untypeast.lident_of_path path)) (List.map (core_type_of_type_expr context) args)
              end
         | Tlink ty -> core_type_of_type_expr context ty
@@ -423,7 +477,7 @@ let ptype_params_of_ttype_decl conversion_context (ttype_decl : Types.type_decla
     (* The equivalent of not specifying the variance explicitly.
        Since the very purpose of ppx_import is to include the full definition,
        it should always be sufficient to rely on the inferencer to deduce variance. *)
-    Asttypes.Invariant)
+    OCaml_version.Ast.Asttypes.Invariant)
     ttype_decl.type_params ttype_decl.type_variance
 
 let map_loc f (l : 'a Location.loc) : 'b Location.loc =
@@ -468,7 +522,7 @@ module Symbol_table = struct
       mutable rec_group : type_decl_group;
     }
   and type_decl_group = {
-      rec_flag : Asttypes.rec_flag;
+      rec_flag : OCaml_version.Ast.Asttypes.rec_flag;
       decls : type_decl list;
     }
 
@@ -524,7 +578,9 @@ module Symbol_table = struct
           decl :: rev_decls, add_type name decl table in
         let rev_decls, table =
           List.fold_left add_type ([], table) group in
-        let group = { rec_flag; decls = List.rev rev_decls } in
+        let group = {
+          rec_flag = convert_rec_flag rec_flag;
+          decls = List.rev rev_decls } in
         rev_decls |> List.iter begin fun (decl : type_decl) ->
           decl.rec_group <- group;
         end;
@@ -546,6 +602,43 @@ type import_type_decl = {
     loc : Location.t;
     pdecl : Parsetree.type_declaration option;
   }
+
+module Zipper = struct
+  type 'a t = {
+      previous : 'a list;
+      current : 'a;
+      next : 'a list;
+    }
+
+  let rec find previous p list =
+    match list with
+    | [] -> None
+    | current :: next ->
+        if p current then
+          Some { previous; current; next }
+        else
+          find (current :: previous) p next
+
+  let find p list =
+    find [] p list
+
+  let pop zipper =
+    List.rev_append zipper.previous zipper.next
+end
+
+let attr_name_is name (({ txt; _}, _) : Parsetree.attribute) =
+  txt = name
+
+let has_attr name attributes =
+  attributes |> List.exists (attr_name_is name)
+
+let find_attr_type ~loc name attributes =
+  match Zipper.find (attr_name_is name) attributes with
+  | None -> None
+  | Some zipper ->
+      match snd zipper.current with
+      | PTyp ty -> Some (zipper, ty)
+      | _ -> Location.raise_errorf ~loc "Type expected"
 
 let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
     rewrite_context overriden_ref defined_ref =
@@ -580,10 +673,10 @@ let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
     let map_labels =
       List.map (fun (ld : Types.label_declaration) : Parsetree.label_declaration ->
         { pld_name       = { txt = Ident.name ld.ld_id; loc = ld.ld_loc };
-          pld_mutable    = ld.ld_mutable;
+          pld_mutable    = convert_mutable_flag ld.ld_mutable;
           pld_type       = core_type_of_type_expr conversion_context ld.ld_type;
           pld_loc        = ld.ld_loc;
-          pld_attributes = ld.ld_attributes; })
+          pld_attributes = convert_attributes ld.ld_attributes; })
     in
     match decl.decl.type_kind with
     | Type_abstract -> Ptype_abstract
@@ -605,12 +698,12 @@ let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
           pcd_args       = map_args cd.cd_args;
           pcd_res;
           pcd_loc        = cd.cd_loc;
-          pcd_attributes = cd.cd_attributes; }))
+          pcd_attributes = convert_attributes cd.cd_attributes; }))
   and ptype_manifest, ptype_attributes =
     match decl.decl.type_manifest with
     | Some typ ->
         let attrs : Parsetree.attributes =
-          if Ast_convenience.has_attr attr_rewrite attrs && not (Ast_convenience.has_attr attr_from attrs) then
+          if has_attr attr_rewrite attrs && not (has_attr attr_from attrs) then
             let imported_type = Ast_helper.Typ.constr
                 (ident_of_name from_name)
                 params in
@@ -628,7 +721,7 @@ let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
   let result = ({
     ptype_name = new_name; ptype_params; ptype_kind; ptype_manifest;
     ptype_cstrs = [];
-    ptype_private = decl.decl.type_private;
+    ptype_private = convert_private_flag decl.decl.type_private;
     ptype_attributes;
     ptype_loc = decl.decl.type_loc; } : Parsetree.type_declaration) in
   decl.imported <- true;
@@ -670,23 +763,6 @@ let kind_type = "type"
 let find_type arg = find kind_type arg
 
 let find_module arg = find "module" arg
-
-let rec pop_attr name (attributes : Parsetree.attributes) =
-  match attributes with
-  | [] -> raise Not_found
-  | hd :: tl ->
-      if (fst hd).txt = name then
-        tl
-      else
-        hd :: pop_attr name tl
-
-let find_attr_type ~loc name attributes =
-  match Ast_convenience.find_attr name attributes with
-  | None -> None
-  | Some payload ->
-      match payload with
-      | PTyp ty -> Some ty
-      | _ -> Location.raise_errorf ~loc "Type expected"
 
 type mode = Override | Include | Import
 
@@ -868,8 +944,8 @@ let with_constraints (table : Symbol_table.t)
 let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
   type_decls |> List.filter_map begin
     fun (decl : Parsetree.type_declaration) ->
-      match Ast_convenience.find_attr attr_rewrite decl.ptype_attributes with
-      | Some (PStr []) ->
+      match Zipper.find (attr_name_is attr_rewrite) decl.ptype_attributes with
+      | Some ({ current = (_, PStr []); _ } as zipper) ->
           begin match rewrite_system_ref with
           | None ->
               Location.raise_errorf ~loc:decl.ptype_loc
@@ -878,11 +954,11 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
               let decl_pattern =
                 Ast_helper.Typ.constr (ident_of_name decl.ptype_name)
                   (List.map fst decl.ptype_params) in
-              if Ast_convenience.has_attr attr_remove decl.ptype_attributes then
+              if has_attr attr_remove decl.ptype_attributes then
                 let rhs =
                   match find_attr_type ~loc:decl.ptype_loc attr_from
                       decl.ptype_attributes with
-                  | Some rhs -> rhs
+                  | Some (_zipper, rhs) -> rhs
                   | None -> assert false in
                 rewrite_system_ref := (decl_pattern, rhs)
                   :: !rewrite_system_ref;
@@ -893,8 +969,8 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
                     find_attr_type ~loc:decl.ptype_loc attr_from
                       decl.ptype_attributes
                   with
-                  | Some lhs ->
-                      lhs, pop_attr attr_from decl.ptype_attributes
+                  | Some (zipper, lhs) ->
+                      lhs, Zipper.pop zipper
                   | None ->
                       let lhs =
                         match decl.ptype_manifest with
@@ -911,7 +987,7 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
                       lhs, decl.ptype_attributes in
                 rewrite_system_ref := (lhs, decl_pattern)
                   :: !rewrite_system_ref;
-                let ptype_attributes = pop_attr attr_rewrite attributes in
+                let ptype_attributes = Zipper.pop zipper in
                 Some { decl with ptype_attributes }
           end
       | _ -> Some decl
@@ -922,7 +998,7 @@ let type_decls_has_co (type_decls : Parsetree.type_declaration list) =
   | { ptype_name = { txt = "co"; _ };
       ptype_manifest = None;
       ptype_attributes; _ } :: ((_ :: _) as others)
-    when not (Ast_convenience.has_attr attr_from ptype_attributes) ->
+    when not (has_attr attr_from ptype_attributes) ->
       others, Some ptype_attributes
   | _ -> type_decls, None
 
@@ -936,13 +1012,13 @@ let list_type_decls_to_import map modident type_decls =
     let from_name, attrs =
       match find_attr_type ~loc attr_from pdecl.ptype_attributes with
       | None -> pdecl.ptype_name, pdecl.ptype_attributes
-      | Some { ptyp_desc =
-            Ptyp_constr ({ txt = Lident name; loc }, []); _ } ->
+      | Some (zipper, { ptyp_desc =
+            Ptyp_constr ({ txt = Lident name; loc }, []); _ }) ->
               { loc; txt = name },
-          if Ast_convenience.has_attr attr_rewrite pdecl.ptype_attributes then
+          if has_attr attr_rewrite pdecl.ptype_attributes then
             pdecl.ptype_attributes
           else
-            pop_attr attr_from pdecl.ptype_attributes
+            Zipper.pop zipper
       | _ ->
           Location.raise_errorf ~loc "%s: Type name expected" override_name in
     let decl = find_type from_name map modident in
@@ -968,7 +1044,7 @@ let include_co_in_type_list attrs type_list =
   type_list
 
 let decl_has_attr attr (decl : Parsetree.type_declaration) =
-  Ast_convenience.has_attr attr decl.ptype_attributes
+  has_attr attr decl.ptype_attributes
 
 let modident_if_not_self_reference modident =
   if is_self_reference modident then
@@ -1371,7 +1447,7 @@ let rec make_mapper (context : mapper_context) : Ast_mapper.mapper = {
 
 let () =
   Migrate_parsetree.Driver.register ~name:"override" ~position:(-10)
-    (module Migrate_parsetree.OCaml_407)
+    (module OCaml_version)
     (fun config _ ->
       make_mapper {
         ocamldep = config.tool_name = "ocamldep"; rewrite_env = None; })
