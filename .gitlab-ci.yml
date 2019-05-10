@@ -27,13 +27,3 @@ build and test on 4.04:
   <<: *build_and_test_def
   variables:
     ocaml_version: "4.04"
-
-build and test on 4.03:
-  <<: *build_and_test_def
-  variables:
-    ocaml_version: "4.03"
-
-build and test on 4.02:
-  <<: *build_and_test_def
-  variables:
-    ocaml_version: "4.02"

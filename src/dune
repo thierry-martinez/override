@@ -2,5 +2,8 @@
   (public_name override)
   (kind ppx_rewriter)
   (preprocess (pps ppxlib.metaquot))
-  (flags -open Stdcompat -w +32)
+; +warning 32: Unused value declaration.
+; +warning 34: Unused type declaration.
+; -warning 40: Constructor or label name used out of scope. (OCaml <=4.06.0)
+  (flags -open Stdcompat -w +32+34-40)
   (libraries compiler-libs.common ppxlib stdcompat ppx_tools))

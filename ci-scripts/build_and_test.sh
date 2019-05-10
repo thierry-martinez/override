@@ -14,5 +14,5 @@ opam install --yes --deps-only override
 cd override
 make
 make tests
-opam install ppx_deriving
+opam install cppo ppx_deriving
 make examples

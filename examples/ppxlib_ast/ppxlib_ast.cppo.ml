@@ -12,11 +12,17 @@ recursive block" *)
 
   (* "- flattening all the modules"
      All the modules are imported with module%import. *)
+#if OCAML_VERSION >= (4, 07, 0)
   module%import Stdlib = struct
     module%import Lexing = struct
       type position = _ [@@rewrite]
     end
   end
+#else
+  module%import Lexing = struct
+    type position = _ [@@rewrite]
+  end
+#endif
 
   module%import Location = struct
     (* "- renaming a few types:

@@ -1,9 +1,15 @@
 [%%recursive:
+#if OCAML_VERSION >= (4, 07, 0)
   module%import Stdlib : sig
     module%import Lexing : sig
       type position = _ [@@rewrite]
     end
   end
+#else
+  module%import Lexing : sig
+    type position = _ [@@rewrite]
+  end
+#endif
 
   module%import Location : sig
     type location = _ [@@from: t] [@@rewrite]
