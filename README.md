@@ -119,8 +119,10 @@ let () =
 (* Longident.Ldot (Longident.Ldot (Longident.Lident ("Foo"), "Bar"), "baz") *)
 ```
 
-Several types may be imported at once with the construction `type t and ... and u = _`.
-All the types imported at once are redefined in a single mutually recursive definition.
+Several types may be imported at once with the construction
+`type t and ... and u = _`.
+All the types imported at once are redefined in a single mutually recursive
+definition.
 
 ```ocaml
 module%override Location = struct
@@ -157,15 +159,16 @@ module%override Location = struct
 end
 ```
 
-## `[%%types]`: importing all the types from a module
+## `[%%types]`: importing all the types and module types from a module
 
-The notation `[%%types]` imports all the types defined in the
-currently overriden module, except types that have been overriden
-previously. Attributes given to `[%%types` are applied to each imported
-type. Types that were mutually recursive in the imported module are
-defined as mutually recursive in the overriden module (to gather
-independent types in a single mutually recursive group, see the next
-section about the `[%%recursive]` extension).
+The notation `[%%types]` imports all the types and module types
+defined in the currently overriden module, except types and moduel
+types that have been overriden previously. Attributes given to
+`[%%types]` are applied to each imported type. Types that were
+mutually recursive in the imported module are defined as mutually
+recursive in the overriden module (to gather independent types in a
+single mutually recursive group, see the next section about the
+`[%%recursive]` extension).
 
 For example, we may try to derive `show` for all types of OCaml `Parsetree`,
 using the package `compiler-libs.common`.
@@ -337,7 +340,7 @@ Note that the notation becomes `[%%recursive: ...]` in a signature.
 The notation `module%import` is useful in particular to import the types
 declared in the interface file. For example, the implementation file
 [`self_import.ml`] can import the types declared in [`self_import.mli`]
-as in the following example.
+with the following construction.
 
 [`self_import.ml`]: https://gitlab.inria.fr/tmartine/override/blob/master/examples/self_import/self_import.ml
 [`self_import.mli`]: https://gitlab.inria.fr/tmartine/override/blob/master/examples/self_import/self_import.mli
@@ -345,6 +348,52 @@ as in the following example.
 ```ocaml
 module%import Self_import = struct
   [%%types]
+end
+```
+
+This construction can be used at the root of the implementation file
+as well as in submodules, including functors.
+For instance, the following interface file [`self_import.mli`] declares
+a type, a module type and a functor, and some values.
+
+```ocaml
+type t = A | B
+
+val x : t
+
+module type S = sig
+  type t
+
+  val perform : t -> unit
+end
+
+module Make (X : S) : sig
+  type t = X.t
+
+  val perform_twice : t -> unit
+end
+```
+
+The following implementation file [`self_import.ml`] imports these
+definitions and provides the declared values.
+
+```ocaml
+module%import Self_import = struct
+  [%%types]
+end
+
+let x = A
+
+module Make (X : S) = struct
+  module%import Self_import = struct
+    module%import Make (X : S) = struct
+      [%%types]
+    end
+  end
+
+  let perform_twice t =
+    X.perform t;
+    X.perform t
 end
 ```
 

@@ -27,6 +27,7 @@ module Ast_definitions (Types : Ast_types) = struct
     | Extension of Parsetree.extension * Parsetree.attributes
     | Type of Asttypes.rec_flag * Parsetree.type_declaration list
     | Module of module_binding
+    | Modtype of Parsetree.module_type_declaration
     | Include of include_declaration
     | Other of item
 
@@ -69,7 +70,9 @@ module type S = sig
 
   val build : wrapped_item -> item
 
-  val map : Ast_mapper.mapper -> contents -> contents
+  val map : Ast_mapper.mapper -> Ast_mapper.mapper -> contents -> contents
+
+  val map_item : Ast_mapper.mapper -> Ast_mapper.mapper -> item -> item
 
   val format : Format.formatter -> contents -> unit
 
@@ -126,6 +129,7 @@ module Structure : S with module Types = Structure_types = struct
       | Pstr_extension (ext, attrs) -> Extension (ext, attrs)
       | Pstr_type (rec_flag, list) -> Type (rec_flag, list)
       | Pstr_module binding -> Module binding
+      | Pstr_modtype declaration -> Modtype declaration
       | Pstr_include inc -> Include inc
       | _ -> Other item in
     { loc = item.pstr_loc; txt }
@@ -135,12 +139,16 @@ module Structure : S with module Types = Structure_types = struct
     match desc.txt with
     | Extension (ext, attrs) -> Ast_helper.Str.extension ~loc ~attrs ext
     | Type (rec_flag, list) -> Ast_helper.Str.type_ ~loc rec_flag list
-    | Module declaration -> Ast_helper.Str.module_ ~loc declaration
+    | Module binding -> Ast_helper.Str.module_ ~loc binding
+    | Modtype declaration -> Ast_helper.Str.modtype ~loc declaration
     | Include inc -> Ast_helper.Str.include_ ~loc inc
     | Other item -> Ast_helper.Str.mk ~loc item.pstr_desc
 
-  let map (mapper : Ast_mapper.mapper) (contents : contents) : contents =
-    mapper.structure mapper contents
+  let map (mapper : Ast_mapper.mapper) submapper (contents : contents) : contents =
+    mapper.structure submapper contents
+
+  let map_item (mapper : Ast_mapper.mapper) submapper item =
+    mapper.structure_item submapper item
 
   let format formatter contents =
     Pprintast.structure formatter (From.copy_structure contents)
@@ -218,6 +226,7 @@ module Signature : S with module Types = Signature_types = struct
       | Psig_extension (ext, attrs) -> Extension (ext, attrs)
       | Psig_type (rec_flag, list) -> Type (rec_flag, list)
       | Psig_module declaration -> Module declaration
+      | Psig_modtype declaration -> Modtype declaration
       | Psig_include inc -> Include inc
       | _ -> Other item in
     { loc = item.psig_loc; txt }
@@ -228,11 +237,15 @@ module Signature : S with module Types = Signature_types = struct
     | Extension (ext, attrs) -> Ast_helper.Sig.extension ~loc ~attrs ext
     | Type (rec_flag, list) -> Ast_helper.Sig.type_ ~loc rec_flag list
     | Module declaration -> Ast_helper.Sig.module_ ~loc declaration
+    | Modtype declaration -> Ast_helper.Sig.modtype ~loc declaration
     | Include inc -> Ast_helper.Sig.include_ ~loc inc
     | Other item -> item
 
-  let map (mapper : Ast_mapper.mapper) item =
-    mapper.signature mapper item
+  let map (mapper : Ast_mapper.mapper) submapper contents =
+    mapper.signature submapper contents
+
+  let map_item (mapper : Ast_mapper.mapper) submapper item =
+    mapper.signature_item submapper item
 
   let format formatter contents =
     Pprintast.signature formatter (From.copy_signature contents)
