@@ -1386,20 +1386,27 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       pmtd_attributes = [];
       pmtd_loc = loc }}
 
-  let rec override_module (rewrite_env : rewrite_env)
-      (context : override_context) (desc : Wrapper.wrapped_module_binding) =
-    let loc = desc.loc in
-    let expr = override_module_expr context desc.txt.contents.expr in
+  let override ~loc (rewrite_env : rewrite_env)
+      (context : override_context) override_item item bind_item include_item =
+    let item = override_item context item in
     let result =
       if context.mode.submodule then
-        bind_module ~loc desc.txt.contents.name expr
+        bind_item item
       else
-        include_module ~loc expr in
+        include_item item in
     promote_rewrite rewrite_env.rewrite_system_ref
       (Lident context.name) context.mode.submodule
       !(context.overriden_ref) !(context.defined_ref)
       !(context.rewrite_env.rewrite_system_ref);
     result
+
+  let rec override_module (rewrite_env : rewrite_env)
+      (context : override_context) (desc : Wrapper.wrapped_module_binding) =
+    let loc = desc.loc in
+    override ~loc rewrite_env context
+      override_module_expr desc.txt.contents.expr
+      (bind_module ~loc desc.txt.contents.name)
+      (include_module ~loc)
 
   and override_module_type (rewrite_env : rewrite_env)
       (context : override_context) (desc : Parsetree.module_type_declaration) =
@@ -1408,19 +1415,13 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       match desc.pmtd_type with
       | None -> abstract_module_types_not_supported ~loc
       | Some mod_type -> mod_type in
-    let mod_type = context.override_module_type context mod_type in
-    let result =
-      if context.mode.submodule then
+    override ~loc rewrite_env context
+      context.override_module_type mod_type
+      (fun item ->
         let modtypedecl : Parsetree.module_type_declaration = {
-          desc with pmtd_type = Some mod_type } in
-        Wrapper.build { loc; txt = Modtype modtypedecl }
-      else
-        include_module_type ~loc mod_type in
-    promote_rewrite rewrite_env.rewrite_system_ref
-      (Lident context.name) context.mode.submodule
-      !(context.overriden_ref) !(context.defined_ref)
-      !(context.rewrite_env.rewrite_system_ref);
-    result
+          desc with pmtd_type = Some item } in
+        Wrapper.build { loc; txt = Modtype modtypedecl })
+      (include_module_type ~loc)
 
   and override_module_expr (context : override_context)
       (expr : Wrapper.module_expr) =
