@@ -416,8 +416,16 @@ let rec core_type_of_type_expr (context : type_conversion_context)
             | None -> Ast_helper.Typ.var var
             end
         | Tarrow (label, lhs, rhs, _) ->
-            Ast_helper.Typ.arrow (convert_arg_label label)
-              (core_type_of_type_expr context lhs)
+            let lhs = core_type_of_type_expr context lhs in
+            let lhs =
+              match label with
+              | Optional _ ->
+                  begin match lhs with
+                  | [%type: [%t? lhs] option] -> lhs
+                  | _ -> assert false
+                  end
+              | _ -> lhs in
+            Ast_helper.Typ.arrow (convert_arg_label label) lhs
               (core_type_of_type_expr context rhs)
         | Ttuple xs ->
             Ast_helper.Typ.tuple (List.map (core_type_of_type_expr context) xs)
@@ -557,33 +565,51 @@ let cut_rec cut_item (rec_status : Types.rec_status) first list
     : Asttypes.rec_flag * 'a * 'b =
   match rec_status with
   | Trec_not -> Nonrecursive, [first], list
-  | Trec_first ->
+  | Trec_first | Trec_next ->
+      (* Allow Trec_next here to handle filtered signatures. *)
       let result, tail = cut_sequence cut_item [first] list in
       Recursive, result, tail
-  | Trec_next -> invalid_arg "cut_rec"
 
 module Symbol_table = struct
+  type 'a group = {
+      rec_flag : OCaml_version.Ast.Asttypes.rec_flag;
+      decls : 'a list;
+    }
+
   type type_decl = {
       name : string;
       decl : Types.type_declaration;
       mutable imported : bool;
-      mutable rec_group : type_decl_group;
-    }
-  and type_decl_group = {
-      rec_flag : OCaml_version.Ast.Asttypes.rec_flag;
-      decls : type_decl list;
+      mutable rec_group : type_decl group;
     }
 
   type modtype_decl = {
+      name : string;
       decl : Types.modtype_declaration;
       mutable imported : bool;
     }
 
-  let empty_type_decl_group = { rec_flag = Nonrecursive; decls = [] }
+  type value_decl = {
+      name : string;
+      desc : Types.value_description;
+    }
+
+  type module_decl = {
+      name : string;
+      decl : Types.module_declaration;
+    }
+
+  type item =
+    | Type of type_decl group
+    | Modtype of modtype_decl
+    | Value of value_decl
+    | Module of module_decl group
+
+  let empty_group = { rec_flag = Nonrecursive; decls = [] }
 
   type t = {
       types : type_decl String_map.t;
-      modules : Types.module_declaration String_map.t;
+      modules : module_decl String_map.t;
       module_types : modtype_decl String_map.t;
       only_types : bool;
     }
@@ -609,20 +635,21 @@ module Symbol_table = struct
     { table with only_types = false }
 
   type signature = {
-      groups : type_decl_group list;
+      tsig : Types.signature;
+      items : item list;
       table : t;
     }
 
-  let rec group_signature rev_groups table (tsig : Types.signature) =
+  let rec group_signature rev_items table (tsig : Types.signature) =
     match tsig with
-    | [] -> { groups = List.rev rev_groups; table }
+    | [] -> List.rev rev_items, table
     | Sig_type (ident, decl, rec_status) :: tail ->
         let rec_flag, group, tail =
           cut_rec type_rec_next rec_status (ident, decl) tail in
         let add_type (rev_decls, table) (ident, decl) =
           let name = Ident.name ident in
           let decl = {
-            name; decl; imported = false; rec_group = empty_type_decl_group } in
+            name; decl; imported = false; rec_group = empty_group } in
           decl :: rev_decls, add_type name decl table in
         let rev_decls, table =
           List.fold_left add_type ([], table) group in
@@ -632,17 +659,33 @@ module Symbol_table = struct
         rev_decls |> List.iter begin fun (decl : type_decl) ->
           decl.rec_group <- group;
         end;
-        group_signature (group :: rev_groups) table tail
-    | Sig_module (ident, decl, _rec_flag) :: tail ->
-        let table = add_module (Ident.name ident) decl table in
-        group_signature rev_groups (not_only_types table) tail
+        group_signature (Type group :: rev_items) table tail
+    | Sig_module (ident, decl, rec_status) :: tail ->
+        let rec_flag, group, tail =
+          cut_rec module_rec_next rec_status (ident, decl) tail in
+        let add_module (rev_decls, table) (ident, decl) =
+          let name = Ident.name ident in
+          let decl = { name; decl } in
+          decl :: rev_decls, add_module name decl table in
+        let rev_decls, table =
+          List.fold_left add_module ([], table) group in
+        let group = {
+          rec_flag = convert_rec_flag rec_flag;
+          decls = List.rev rev_decls } in
+        group_signature (Module group :: rev_items) (not_only_types table) tail
     | Sig_modtype (ident, decl) :: tail ->
-        let table =
-          add_module_type (Ident.name ident) { decl; imported = false } table in
-        group_signature rev_groups table tail
-    | _ :: tail -> group_signature rev_groups (not_only_types table) tail
+        let name = Ident.name ident in
+        let decl = { name; decl; imported = false } in
+        let table = add_module_type name decl table in
+        group_signature (Modtype decl :: rev_items) table tail
+    | Sig_value (ident, desc) :: tail ->
+        let decl = { name = Ident.name ident; desc } in
+        group_signature (Value decl :: rev_items) (not_only_types table) tail
+    | _ :: tail -> group_signature rev_items (not_only_types table) tail
 
-  let of_signature tsig = group_signature [] empty tsig
+  let of_signature tsig =
+    let items, table = group_signature [] empty tsig in
+    { tsig; items; table }
 end
 
 module Zipper = struct
@@ -849,13 +892,14 @@ type import_mode = Include | Not_include | Ignore
 
 type mode = {
     import : import_mode;
-    submodule : bool; }
+    submodule : bool;
+  }
 
 let mode_of_string name =
   match name with
-  | "override" -> { import = Include; submodule = true }
-  | "include" -> { import = Include; submodule = false }
-  | "import" -> { import = Not_include; submodule = false }
+  | "override" -> { import = Include; submodule = true; }
+  | "include" -> { import = Include; submodule = false; }
+  | "import" -> { import = Not_include; submodule = false; }
   | _ -> invalid_arg "mode_of_string"
 
 let rec remove_prefix prefix (ident : Longident.t) =
@@ -950,6 +994,7 @@ type override_context = {
     modenv : modenv;
     name : string;
     mode : mode;
+    manifest : bool;
     rewrite_env : rewrite_env;
     overriden_ref : Symbol_set.t ref;
     defined_ref : Symbol_set.t ref;
@@ -994,8 +1039,8 @@ let get_signature ~loc modenv =
       | _ -> assert false
 
 let make_context ?(defined_ref = ref Symbol_set.empty) modenv name
-    mode rewrite_env override_module_type = {
-  modenv; name; mode; rewrite_env;
+    mode ~manifest rewrite_env override_module_type = {
+  modenv; name; mode; manifest; rewrite_env;
   overriden_ref = ref Symbol_set.empty;
   defined_ref; override_module_type; }
 
@@ -1003,9 +1048,7 @@ let with_constraints (table : Symbol_table.t)
     (modident : Longident.t Location.loc) rewrite_context
     (symbols : Symbol_set.t) =
   let loc = modident.loc in
-  if not (String_set.is_empty symbols.module_types) then
-    Location.raise_errorf ~loc
-      "module types are only supported with module%%import";
+  assert (String_set.is_empty symbols.module_types);
   let type_constraints =
     String_set.fold begin
       fun type_name accu : Parsetree.with_constraint list ->
@@ -1138,15 +1181,16 @@ let include_co_in_type_list attrs type_list =
 let decl_has_attr attr (decl : Parsetree.type_declaration) =
   has_attr attr decl.ptype_attributes
 
-let modident_if_not_self_reference modident =
-  if is_self_reference modident then
+let modident_if_manifest_and_not_self_reference ~manifest modident =
+  if not manifest || is_self_reference modident then
     None
   else
     Some modident
 
 let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
-    rewrite_context =
-  let modident_opt = modident_if_not_self_reference modident in
+     ~manifest rewrite_context =
+  let modident_opt =
+    modident_if_manifest_and_not_self_reference ~manifest modident in
   let type_decls', and_co = type_decls_has_co type_decls in
   let type_decls =
     if type_decls |> List.exists begin
@@ -1239,20 +1283,23 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
   else
     [mktype type_decls]
 
+let import_value ~loc rewrite_env name (desc : Types.value_description) =
+  let prim =
+    match desc.val_kind with
+    | Val_prim { prim_name; prim_native_name; _ } ->
+        [ prim_name; prim_native_name]
+    | _ -> [] in
+  let conversion_context = create_type_conversion_context rewrite_env in
+  let type_ = core_type_of_type_expr conversion_context desc.val_type in
+  Ast_helper.Sig.value ~loc
+    (Ast_helper.Val.mk ~loc ~prim { loc; txt = name } type_)
+
 let rec import_signature ~loc rewrite_env (s : Types.signature) =
   match s with
   | [] -> []
   | Sig_value (ident, desc) :: tail ->
-      let prim =
-        match desc.val_kind with
-        | Val_prim { prim_name; prim_native_name; _ } ->
-            [ prim_name; prim_native_name]
-        | _ -> [] in
-      let conversion_context = create_type_conversion_context rewrite_env in
-      let type_ = core_type_of_type_expr conversion_context desc.val_type in
-      Ast_helper.Sig.value ~loc
-        (Ast_helper.Val.mk ~loc ~prim { loc; txt = Ident.name ident } type_) ::
-         import_signature ~loc rewrite_env tail
+      import_value ~loc rewrite_env (Ident.name ident) desc
+      :: import_signature ~loc rewrite_env tail
   | Sig_type (ident, decl, rec_status) :: tail ->
       let rec_flag, types, tail =
         cut_rec type_rec_next rec_status (ident, decl) tail in
@@ -1266,21 +1313,16 @@ let rec import_signature ~loc rewrite_env (s : Types.signature) =
   | Sig_module (ident, decl, rec_status) :: tail ->
       let rec_flag, modules, tail =
         cut_rec module_rec_next rec_status (ident, decl) tail in
-      let modules = modules |> List.map begin
-        fun (ident, (decl : Types.module_declaration)) ->
-          let modtype = import_modtype ~loc rewrite_env decl.md_type in
-          Ast_helper.Md.mk { loc; txt = Ident.name ident } modtype
+      let decls = modules |> List.map begin
+        fun (ident, (decl : Types.module_declaration))
+            : Symbol_table.module_decl ->
+          { name = Ident.name ident;
+            decl = decl; }
       end in
+      let rec_flag = convert_rec_flag rec_flag in
       let declarations =
-        match rec_flag with
-        | Nonrecursive ->
-            let module_ =
-              match modules with
-              | [module_] -> module_
-              | _ -> assert false in
-            Ast_helper.Sig.module_ ~loc module_
-        | Recursive ->
-            Ast_helper.Sig.rec_module ~loc modules in
+        import_module_group ~loc rewrite_env
+          ({ rec_flag; decls } : Symbol_table.module_decl Symbol_table.group) in
       declarations :: import_signature ~loc rewrite_env tail
   | Sig_modtype (ident, decl) :: tail ->
       let typ =
@@ -1291,6 +1333,23 @@ let rec import_signature ~loc rewrite_env (s : Types.signature) =
         :: import_signature ~loc rewrite_env tail
   | _ ->
       Location.raise_errorf ~loc "Unsupported signature item"
+
+and import_module_group ~loc rewrite_env
+    (group : Symbol_table.module_decl Symbol_table.group) =
+  let modules = group.decls |> List.map begin
+    fun (decl : Symbol_table.module_decl) ->
+      let modtype = import_modtype ~loc rewrite_env decl.decl.md_type in
+      Ast_helper.Md.mk { loc; txt = decl.name } modtype
+  end in
+  match group.rec_flag with
+  | Nonrecursive ->
+      let module_ =
+        match modules with
+        | [module_] -> module_
+        | _ -> assert false in
+      Ast_helper.Sig.module_ ~loc module_
+  | Recursive ->
+      Ast_helper.Sig.rec_module ~loc modules
 
 and import_modtype ~loc rewrite_env (modtype : Types.module_type)
     : Parsetree.module_type =
@@ -1305,6 +1364,9 @@ and import_modtype ~loc rewrite_env (modtype : Types.module_type)
       Ast_helper.Mty.functor_ ~loc { loc; txt = Ident.name x } t s
   | Mty_alias (_, p) ->
       Ast_helper.Mty.alias ~loc { loc; txt = Untypeast.lident_of_path p }
+
+let symbols_only_allowed_in_signatures ~loc () =
+  Location.raise_errorf ~loc "[%%symbols] only allowed in signatures"
 
 module Make_mapper (Wrapper : Ast_wrapper.S) = struct
   let make_recursive ~loc contents attributes =
@@ -1339,7 +1401,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
 
   let include_module_type ~loc (modtype : Parsetree.module_type)
       : Wrapper.item =
-    let modtype = Wrapper.choose
+    let modtype = Wrapper.choose_module_expr
         (fun () ->
           Location.raise_errorf ~loc
             "Module types can only be included in signatures")
@@ -1400,6 +1462,62 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       !(context.rewrite_env.rewrite_system_ref);
     result
 
+  let mk_type ~loc context rec_flag type_decls =
+    let type_decls =
+      apply_rewrite_attr ~loc ~modident:context.modenv.ident.txt
+        (Some context.rewrite_env.rewrite_system_ref)
+        type_decls in
+    if type_decls = [] then
+      Wrapper.empty ~loc
+    else
+      Wrapper.build { loc; txt = Type (rec_flag, type_decls)}
+
+  let import_symbols_from_signature ~loc ~only_types context attrs env
+      (signature : Symbol_table.signature) =
+    let modident =
+      modident_if_manifest_and_not_self_reference
+        ~manifest:context.manifest context.modenv.ident.txt in
+    let rewrite_context = current_rewrite_context context.rewrite_env in
+    signature.items |> List.filter_map begin
+      fun (item : Symbol_table.item) ->
+        begin match item with
+        | Type group ->
+            begin match
+              decl_of_list ~loc attrs modident
+                rewrite_context group.decls context.overriden_ref
+                context.defined_ref with
+            | [] -> None
+            | decls -> Some (mk_type ~loc context group.rec_flag decls)
+            end
+        | Modtype decl ->
+            if decl.imported then
+              None
+            else
+              let item =
+                import_modtype_decl ~loc rewrite_context
+                  { loc; txt = decl.name } decl.decl in
+              decl.imported <- true;
+              Some item
+        | Value decl ->
+            if only_types then
+              None
+            else
+              let item =
+                Wrapper.choose (symbols_only_allowed_in_signatures ~loc)
+                (fun () ->
+                  import_value ~loc rewrite_context decl.name decl.desc) in
+              Some item
+        | Module group ->
+            if only_types then
+              None
+            else
+              let item =
+                Wrapper.choose (symbols_only_allowed_in_signatures ~loc)
+                (fun () -> import_module_group ~loc rewrite_context group) in
+              Some item
+        end
+    end
+
   let rec override_module (rewrite_env : rewrite_env)
       (context : override_context) (desc : Wrapper.wrapped_module_binding) =
     let loc = desc.loc in
@@ -1433,62 +1551,90 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             get_signature ~loc context.modenv |>
             Option.map (fun (env, s) -> env, Symbol_table.of_signature s) in
           let contents = override_contents context signature contents in
-          let make_include with_constraints =
-            let module_expr = module_of_ident ~loc context.modenv.ident in
-            let modident =
-              Ast_wrapper.module_expr_of_longident context.modenv.ident in
-            let type_of () =
-              Ast_helper.Mty.typeof_
-                (Ast_helper.Mod.structure [
-                 Ast_helper.Str.include_ (
-                   Ast_helper.Incl.mk modident)]) in
+          let module_expr = module_of_ident ~loc context.modenv.ident in
+          let modident =
+            Ast_wrapper.module_expr_of_longident context.modenv.ident in
+          let type_of () =
+            Ast_helper.Mty.typeof_
+              (Ast_helper.Mod.structure [
+               Ast_helper.Str.include_ (Ast_helper.Incl.mk modident)]) in
+          let make_with_constraints with_constraints =
+            match with_constraints with
+            | [] -> None
+            | _ -> Some (Ast_helper.Mty.with_ (type_of ()) with_constraints) in
+          let make_include sig_constraint =
             let module_expr =
-              match with_constraints with
-              | [] ->
-                  Wrapper.choose (fun () -> modident) (fun () -> type_of ())
-              | _ ->
+              match sig_constraint with
+              | None ->
+                  Wrapper.choose_module_expr (fun () -> modident)
+                    (fun () -> type_of ())
+              | Some sig_constraint ->
                   Wrapper.build_module_expr (Wrapper.mkattr ~loc (
                     Wrapper.Constraint (
-                      Lazy.from_val module_expr,
-                      Ast_helper.Mty.with_ (type_of ())
-                             with_constraints))) in
+                      Lazy.from_val module_expr, sig_constraint))) in
             include_module ~loc module_expr in
           let contents =
             match context.mode.import, signature with
             | (Not_include | Ignore), _ -> contents
-            | Include, None -> make_include [] :: contents (* ocamldep *)
+            | Include, None -> make_include None :: contents (* ocamldep *)
             | Include, Some (_env, signature) ->
                 if signature.table.only_types &&
                   signature.table.types |> String_map.for_all begin
                     fun _ (decl : Symbol_table.type_decl) ->
                       decl.imported
+                  end &&
+                  signature.table.module_types |> String_map.for_all begin
+                    fun _ (decl : Symbol_table.modtype_decl) ->
+                      decl.imported
                   end then
                   contents
                 else
+                  let rewrite_context =
+                    current_rewrite_context context.rewrite_env in
                   let conversion_context =
-                    create_type_conversion_context
-                      (current_rewrite_context context.rewrite_env) in
+                    create_type_conversion_context rewrite_context in
                   let symbols =
                     Symbol_set.union !(context.overriden_ref)
                       !(context.defined_ref) in
-                  let with_constraints =
-                    with_constraints signature.table context.modenv.ident
-                      conversion_context symbols in
-                  make_include with_constraints :: contents in
+                  let sig_constraint =
+                    if String_set.is_empty symbols.module_types then
+                      with_constraints signature.table context.modenv.ident
+                        conversion_context symbols |> make_with_constraints
+                    else
+                      let tsig = signature.tsig |> List.filter begin
+                        fun (item : Types.signature_item) ->
+                          match item with
+                          | Sig_type (ident, _, _) ->
+                              not (String_set.mem (Ident.name ident)
+                                symbols.types)
+                          | Sig_module (ident, _, _) ->
+                              not (String_set.mem (Ident.name ident)
+                                symbols.modules)
+                          | Sig_modtype (ident, _) ->
+                              not (String_set.mem (Ident.name ident)
+                                symbols.module_types)
+                          | _ -> true
+                      end in
+                      Some (Ast_helper.Mty.signature
+                        (import_signature ~loc rewrite_context tsig)) in
+                  make_include sig_constraint :: contents in
           structure_of_contents ~loc contents
         | Functor (x, t, e) ->
             let context =
-              let y, modenv = get_functor ~loc context.modenv x.txt in
-              let rewrite_env =
-                match y with
-                | None -> context.rewrite_env
-                | Some y ->
-                    { context.rewrite_env with context =
-                      { context.rewrite_env.context with subst_mod =
-                        Longident_map.add (Longident.Lident (Ident.name y))
-                          (Longident.Lident x.txt)
-                          context.rewrite_env.context.subst_mod }} in
-              { context with modenv; rewrite_env } in
+              match context.mode.import with
+              | Ignore -> context
+              | _ ->
+                let y, modenv = get_functor ~loc context.modenv x.txt in
+                let rewrite_env =
+                  match y with
+                  | None -> context.rewrite_env
+                  | Some y ->
+                      { context.rewrite_env with context =
+                        { context.rewrite_env.context with subst_mod =
+                          Longident_map.add (Longident.Lident (Ident.name y))
+                            (Longident.Lident x.txt)
+                            context.rewrite_env.context.subst_mod }} in
+                { context with modenv; rewrite_env } in
             let e' = override_module_expr context e in
             if context.mode.submodule then
               Wrapper.build_module_expr (Wrapper.mkattr ~loc (
@@ -1509,47 +1655,35 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
     contents |> flatten_map begin fun (item : Wrapper.item) ->
       let item_desc = Wrapper.destruct item in
       let loc = item_desc.loc in
-      let mk_type rec_flag type_decls =
-        let type_decls =
-          apply_rewrite_attr ~loc ~modident:context.modenv.ident.txt
-            (Some context.rewrite_env.rewrite_system_ref)
-            type_decls in
-        if type_decls = [] then
-          Wrapper.empty ~loc
-        else
-          Wrapper.build { loc; txt = Type (rec_flag, type_decls)} in
       match item_desc.txt, signature with
       | Type (rec_flag, type_decls), Some (_env, signature) ->
           let rewrite_context = current_rewrite_context context.rewrite_env in
           prepare_type_decls signature.table.types type_decls
-            context.modenv.ident.txt (mk_type rec_flag)
+            context.modenv.ident.txt (mk_type ~loc context rec_flag)
             context.overriden_ref context.defined_ref rewrite_context
+            ~manifest:context.manifest
       | Module binding, _ ->
           let desc = Wrapper.destruct_module_binding binding in
           let mode = { import = Ignore; submodule = true } in
           [override_submodule context signature mode (Module desc) []]
+      | Modtype declaration, Some (_, signature) ->
+          if
+            String_map.mem declaration.pmtd_name.txt
+              signature.table.module_types then
+            begin
+              context.overriden_ref :=
+                Symbol_set.add_module_type declaration.pmtd_name.txt
+                  !(context.overriden_ref)
+            end;
+          [item]
       | Extension (({ txt = "types"; _ }, PStr []), attrs),
         Some (env, signature) ->
-          let modident =
-            modident_if_not_self_reference context.modenv.ident.txt in
-          let rewrite_context = current_rewrite_context context.rewrite_env in
-          let type_decls =
-            signature.groups |> List.filter_map begin
-              fun (group : Symbol_table.type_decl_group) ->
-                match
-                  decl_of_list ~loc attrs modident
-                    rewrite_context group.decls context.overriden_ref
-                    context.defined_ref with
-                | [] -> None
-                | decls -> Some (mk_type group.rec_flag decls)
-            end in
-          String_map.fold (fun name (decl : Symbol_table.modtype_decl) accu ->
-            if decl.imported then
-              accu
-            else
-              import_modtype_decl ~loc rewrite_context { loc; txt = name }
-                decl.decl :: accu)
-            signature.table.module_types type_decls
+          import_symbols_from_signature ~loc ~only_types:true context attrs env
+            signature
+      | Extension (({ txt = "symbols"; _ }, PStr []), attrs),
+        Some (env, signature) ->
+          import_symbols_from_signature ~loc ~only_types:false context attrs env
+            signature
       | Extension (({ txt = "rewrite"; _ }, payload), attrs), _ ->
           let context = { context with
             rewrite_env = derive_rewrite_env context.rewrite_env } in
@@ -1568,6 +1702,11 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           | exception (Invalid_argument _) -> [item]
           | mode ->
               let submodule = module_or_modtype_of_payload ~loc payload in
+              let manifest =
+                match submodule with
+                | Module _ -> true
+                | Modtype _ -> false in
+              let context = { context with manifest } in
               [override_submodule context signature mode submodule attrs]
           end
       | _ -> [item]
@@ -1583,7 +1722,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           Symbol_set.add_module,
           (fun name (signature : Symbol_table.signature) ->
             (find_module name signature.table.modules
-              context.modenv.ident.txt).md_type),
+              context.modenv.ident.txt).decl.md_type),
           (fun context' ->
             override_module context.rewrite_env context' desc)
       | Modtype decl ->
@@ -1619,8 +1758,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       else
         Some context.defined_ref in
     let context' =
-      make_context ?defined_ref submodenv name.txt mode
-        (derive_rewrite_env context.rewrite_env)
+      make_context ?defined_ref ~manifest:context.manifest submodenv name.txt
+        mode (derive_rewrite_env context.rewrite_env)
         context.override_module_type in
     override_module context'
 
@@ -1672,7 +1811,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                 let rewrite_env' = derive_rewrite_env rewrite_env in
                 let context =
                   make_context modenv name.txt mode rewrite_env'
-                    context.override_module_type in
+                    context.override_module_type ~manifest:true in
                 override_module rewrite_env context desc
             | Modtype decl ->
                 Location.raise_errorf ~loc

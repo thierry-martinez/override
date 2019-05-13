@@ -47,3 +47,21 @@ module Rec_group = struct
 
   type c = C of d and d = D of c
 end
+
+module Module_type = struct
+  type first
+
+  module type S = sig
+    type t = first
+  end
+
+  type last = (module S)
+end
+
+module Redefine_module_type = struct
+  let x = ()
+
+  module type S = sig
+    type t
+  end
+end

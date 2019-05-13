@@ -70,6 +70,10 @@ module type S = sig
 
   val build : wrapped_item -> item
 
+  val choose :
+      (unit -> Parsetree.structure_item) -> (unit -> Parsetree.signature_item) ->
+        item
+
   val map : Ast_mapper.mapper -> Ast_mapper.mapper -> contents -> contents
 
   val map_item : Ast_mapper.mapper -> Ast_mapper.mapper -> item -> item
@@ -86,7 +90,7 @@ module type S = sig
 
   val build_module_expr : wrapped_module_expr -> module_expr
 
-  val choose :
+  val choose_module_expr :
       (unit -> Parsetree.module_expr) -> (unit -> Parsetree.module_type) ->
         module_expr
 end
@@ -143,6 +147,9 @@ module Structure : S with module Types = Structure_types = struct
     | Modtype declaration -> Ast_helper.Str.modtype ~loc declaration
     | Include inc -> Ast_helper.Str.include_ ~loc inc
     | Other item -> Ast_helper.Str.mk ~loc item.pstr_desc
+
+  let choose structure _signature =
+    structure ()
 
   let map (mapper : Ast_mapper.mapper) submapper (contents : contents) : contents =
     mapper.structure submapper contents
@@ -201,7 +208,7 @@ module Structure : S with module Types = Structure_types = struct
           Ast_helper.Mod.constraint_ ~loc ~attrs (Lazy.force m) t
       | Other expr -> Ast_helper.Mod.mk ~loc ~attrs expr.pmod_desc
 
-  let choose make_expr make_type =
+  let choose_module_expr make_expr _make_type =
     make_expr ()
 end
 
@@ -240,6 +247,9 @@ module Signature : S with module Types = Signature_types = struct
     | Modtype declaration -> Ast_helper.Sig.modtype ~loc declaration
     | Include inc -> Ast_helper.Sig.include_ ~loc inc
     | Other item -> item
+
+  let choose _make_structure make_signature =
+    make_signature ()
 
   let map (mapper : Ast_mapper.mapper) submapper contents =
     mapper.signature submapper contents
@@ -293,6 +303,6 @@ module Signature : S with module Types = Signature_types = struct
       | Constraint (_m, t) -> t
       | Other expr -> Ast_helper.Mty.mk ~loc ~attrs expr.pmty_desc
 
-  let choose make_expr make_type =
+  let choose_module_expr _make_expr make_type =
     make_type ()
 end

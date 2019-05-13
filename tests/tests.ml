@@ -36,4 +36,17 @@ module%override Base : Tests_spec.S = struct
   module%override Rec_group = struct
     type c = _ and co [@@deriving]
   end
+
+  module%override Module_type = struct
+    type first = bool
+    [%%types]
+  end
+
+  module%override Redefine_module_type = struct
+    module type%override S = sig
+      type t
+
+      val compare : t -> t -> int
+    end
+  end
 end

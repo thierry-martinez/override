@@ -47,4 +47,20 @@ module type S = sig
     type a = Base.Rec_group.a = A of b and b = Base.Rec_group.b = B of a
     type c = Base.Rec_group.c = C of d and d = Base.Rec_group.d = D of c
   end
+
+  module Module_type : sig
+    type first = bool
+    module type S = sig type t = first end
+    type last = (module S)
+  end
+
+  module Redefine_module_type : sig
+    val x : unit
+
+    module type S = sig
+      type t
+
+      val compare : t -> t -> int
+    end
+  end
 end

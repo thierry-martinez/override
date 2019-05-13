@@ -36,4 +36,17 @@ module%override Base : sig
   module%override Rec_group : sig
     type c = _ and co [@@deriving]
   end
+
+  module%override Module_type : sig
+    type first = bool
+    [%%types]
+  end
+
+  module%override Redefine_module_type : sig
+    module type%override S = sig
+      type t
+
+      val compare : t -> t -> int
+    end
+  end
 end
