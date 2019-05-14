@@ -1,0 +1,5 @@
+(executable
+  (name typedtree_collect_texp_apply)
+  (preprocess (staged_pps override ppxlib.traverse))
+  (flags -dsource)
+  (libraries compiler-libs.common ppxlib.traverse_builtins))
