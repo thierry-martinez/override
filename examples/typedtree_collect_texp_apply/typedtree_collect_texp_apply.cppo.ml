@@ -37,7 +37,7 @@ open Types
     end
 #else
     module%override Lexing = struct
-      type position = _ [@@rewrite] [@@deriving show]
+      type position = _ [@@rewrite]
     end
 #endif
     module%import Location = struct
