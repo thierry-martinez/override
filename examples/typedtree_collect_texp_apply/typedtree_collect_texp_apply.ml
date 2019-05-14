@@ -56,9 +56,8 @@ open Types
 
 type texp_apply = expression * (arg_label * expression option) list
 
-let collect_texp_apply (binary_annots : Cmt_format.binary_annots) = 
-  let any _ acc = acc in
-  let collector = object
+let collector =
+  let any _ acc = acc in object
     inherit [texp_apply list] Ppxlib_traverse_builtins.fold
     inherit [texp_apply list] fold as super
 
@@ -95,5 +94,12 @@ let collect_texp_apply (binary_annots : Cmt_format.binary_annots) =
     method env = any
     method constructor_description = any
     method concr = any
-  end in
-  collector#binary_annots binary_annots
+  end
+
+let collect_texp_apply_from_structure (structure : Typedtree.structure)
+    : texp_apply list =
+  collector#structure structure []
+
+let collect_texp_apply_from_binary_annots
+    (binary_annots : Cmt_format.binary_annots) : texp_apply list =
+  collector#binary_annots binary_annots []
