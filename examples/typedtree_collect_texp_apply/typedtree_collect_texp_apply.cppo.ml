@@ -29,11 +29,17 @@ open Types
   type parsetree_pattern = Parsetree.pattern [@@rewrite]
 
   [%%recursive
+#if OCAML_VERSION >= (4, 07, 0)
     module%import Stdlib = struct
       module%import Lexing = struct
         type position = _ [@@rewrite]
       end
     end
+#else
+    module%override Lexing = struct
+      type position = _ [@@rewrite] [@@deriving show]
+    end
+#endif
     module%import Location = struct
       type location = _ [@@from: t] [@@rewrite]
 
