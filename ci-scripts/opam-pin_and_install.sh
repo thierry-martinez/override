@@ -8,4 +8,4 @@ URL="$1"
 git pull
 opam update
 opam pin add --yes --no-action "$URL"
-opam depext --yes --install clangml
+opam depext --yes --install override
