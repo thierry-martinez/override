@@ -1,3 +1,9 @@
+# future version
+
+- remove dependency to ppx_tools
+
+- add examples/typedtree_collect_texp_apply
+
 # override 0.1.0, 2019-05-09
 
 - generalizes ppx_import by allowing a whole module to be imported

@@ -8,5 +8,5 @@ bug-reports: "https://gitlab.inria.fr/tmartine/override/issues"
 license: "BSD"
 dev-repo: "git+https://gitlab.inria.fr/tmartine/override.git"
 depends: [
-  "dune" "ppxlib" "stdcompat" "ppx_tools"
+  "dune" "ppxlib" "stdcompat"
   "ocaml" {>= "4.04.1" & < "4.08.0"}] # no ppxlib for OCaml <4.04.1
