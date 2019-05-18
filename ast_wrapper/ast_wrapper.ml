@@ -167,7 +167,7 @@ module Structure : S with module Types = Structure_types = struct
         preceding_symbol in
     match payload with
     | PStr s -> s
-    | PPat (p, e) -> structure_expected "?"
+    | PPat (_p, _e) -> structure_expected "?"
     | PSig _ | PTyp _ -> structure_expected ":"
 
   let destruct_module_binding (binding : module_binding)
@@ -263,7 +263,7 @@ module Signature : S with module Types = Signature_types = struct
   let destruct_payload ~loc (payload : Parsetree.payload) =
     match payload with
     | PSig s -> s
-    | PTyp t ->
+    | PTyp _t ->
         Location.raise_errorf ~loc
           "Signature expected (try to capitalize the leading identifier)."
     | PPat _ ->

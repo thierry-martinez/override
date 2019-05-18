@@ -4,6 +4,11 @@
 
 - add examples/typedtree_collect_texp_apply
 
+- Bootstrapped equivalence checking for Parsetree.core_type: matching
+  between types for applying rewriting rules is now complete, and is
+  implemented by overriding Parsetree and deriving eq. The former
+  incomplete equivalence checking is used to bootstrap.
+
 # override 0.1.0, 2019-05-09
 
 - generalizes ppx_import by allowing a whole module to be imported
