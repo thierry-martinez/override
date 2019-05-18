@@ -1,3 +1,7 @@
+module OCaml_version = Migrate_parsetree.OCaml_407
+
+module Parsetree = OCaml_version.Ast.Parsetree
+
 let rec equal_list p l0 l1 =
   match l0, l1 with
   | [], [] -> true
