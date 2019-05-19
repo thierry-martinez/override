@@ -35,6 +35,8 @@ module%override Base : Tests_spec.S = struct
 
   module%override Rec_group = struct
     type c = _ and co [@@deriving]
+
+    type x = _ [@@from: a] and y = _ [@@from: b]
   end
 
   module%override Module_type = struct

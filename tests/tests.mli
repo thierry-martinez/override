@@ -35,6 +35,8 @@ module%override Base : sig
 
   module%override Rec_group : sig
     type c = _ and co [@@deriving]
+
+    type x = _ [@@from: a] and y = _ [@@from: b]
   end
 
   module%override Module_type : sig

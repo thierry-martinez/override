@@ -14,6 +14,9 @@
   can be wrong shadowings, and even loops, even if we suppress the
   trivial ones).
 
+- renamed types are substituded globally in mutually recursive type
+  definitions.
+
 # override 0.1.0, 2019-05-09
 
 - generalizes ppx_import by allowing a whole module to be imported

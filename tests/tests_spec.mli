@@ -44,7 +44,7 @@ module type S = sig
   end
 
   module Rec_group : sig
-    type a = Base.Rec_group.a = A of b and b = Base.Rec_group.b = B of a
+    type x = Base.Rec_group.a = A of y and y = Base.Rec_group.b = B of x
     type c = Base.Rec_group.c = C of d and d = Base.Rec_group.d = D of c
   end
 

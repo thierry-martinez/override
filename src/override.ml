@@ -742,17 +742,18 @@ type import_type_decl = {
     pdecl : Parsetree.type_declaration option;
   }
 
+let prepare_import_rewrite_context rewrite_context { from_name; new_name; _ } =
+  if from_name = new_name then
+    rewrite_context
+  else
+    { rewrite_context with
+      subst_constr = Longident_map.add
+        (Lident from_name.txt) (Longident.Lident new_name.txt)
+        rewrite_context.subst_constr }
+
 let import_type_decl { from_name; new_name; attrs; decl; params; loc } modident
     rewrite_context overriden_ref defined_ref =
   Ast_helper.with_default_loc loc @@ fun () ->
-  let rewrite_context =
-    if from_name = new_name then
-      rewrite_context
-    else
-      { rewrite_context with
-        subst_constr = Longident_map.add
-          (Lident from_name.txt) (Longident.Lident new_name.txt)
-          rewrite_context.subst_constr } in
   let add_subst_param subst_var ((tparam : Types.type_expr), pparam) =
     match var_of_type_expr tparam with
     | Some var -> String_map.add var pparam subst_var
@@ -1195,6 +1196,9 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
         match and_co with
         | None -> type_list
         | Some attrs -> include_co_in_type_list attrs type_list in
+      let rewrite_context =
+        List.fold_left prepare_import_rewrite_context rewrite_context
+          type_list in
       type_list |> List.map begin fun import ->
         import_type_decl import modident_opt rewrite_context
           overriden_ref defined_ref
