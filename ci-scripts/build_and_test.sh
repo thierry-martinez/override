@@ -8,6 +8,7 @@ URL="$1"
 cd ~/opam-repository/
 git pull
 opam update
+cd ~
 git clone "$URL" override
 opam pin add --yes --no-action file:///override/
 opam depext --yes override
