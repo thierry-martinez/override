@@ -69,6 +69,14 @@ let flatten_map f list =
     | hd :: tl -> aux (List.rev_append (f hd) accu) tl in
   aux [] list
 
+let rec find_map f list =
+  match list with
+  | [] -> raise Not_found
+  | hd :: tl ->
+      match f hd with
+      | None -> find_map f tl
+      | Some x -> x
+
 (*
 Adapted from ppx_import
 https://github.com/ocaml-ppx/ppx_import/
@@ -155,19 +163,6 @@ let try_find_module_type ~loc env lid =
             override_name Printtyp.longident lid
         | Some module_type -> module_type)
   with Not_found -> None
-
-let rec resolve_alias ~loc env (module_type : Types.module_type) =
-  match module_type with
-  | (Mty_ident path | Mty_alias (_, path) ) ->
-    begin
-      let module_decl =
-        try Env.find_module path env
-        with Not_found ->
-          Location.raise_errorf ~loc "%s: cannot find module %a"
-            override_name Printtyp.path path in
-      resolve_alias ~loc env module_decl.md_type
-    end
-  | _ -> module_type
 
 let locate_sig env (ident : Longident.t Location.loc) =
   match ident with { loc; txt = lid } ->
@@ -614,6 +609,14 @@ module Symbol_table = struct
   let of_signature tsig =
     let items, table = group_signature [] empty tsig in
     { tsig; items; table }
+
+  let import ~target ~source =
+    let take_source _key target source = Some source in
+    { types = String_map.union take_source target.types source.types;
+      modules = String_map.union take_source target.modules source.modules;
+      module_types =
+        String_map.union take_source target.module_types source.module_types;
+      only_types = target.only_types && source.only_types; }
 end
 
 module Zipper = struct
@@ -908,14 +911,15 @@ let force_rewrite_env rewrite_env =
   | None -> make_rewrite_env empty_rewrite_context
   | Some rewrite_env -> rewrite_env
 
-type modtype = {
+type 'a env = {
     env : Env.t;
-    modtype : Types.module_type;
+    scope : Symbol_table.t;
+    signature : 'a;
   }
 
 type modenv = {
     ident : Longident.t Location.loc;
-    modtype : modtype option;
+    modtype : Types.module_type env option;
   }
 
 type override_context = {
@@ -937,34 +941,93 @@ type mapper_context = {
       override_context -> Parsetree.module_type -> Parsetree.module_type;
   }
 
-let get_functor ~loc modenv name =
+
+let rec resolve_alias ~loc (env : Types.module_type env) =
+  match env.signature with
+  | (Mty_ident path | Mty_alias (_, path) ) ->
+    begin
+      let signature =
+        match
+          match find_in_scope ~loc path env with
+          | signature ->
+              if signature = env.signature then
+                None
+              else
+                Some signature
+          | exception Not_found ->
+              None
+        with
+        | Some signature -> signature
+        | None ->
+          try (Env.find_module path env.env).md_type
+          with Not_found ->
+            Location.raise_errorf ~loc "%s: cannot find module %a"
+              override_name Printtyp.path path in
+      if signature = env.signature then
+        signature
+      else
+        resolve_alias ~loc { env with signature }
+    end
+  | _ -> env.signature
+
+and find_in_scope ~loc (path : Path.t) env =
+  match path with
+  | Pident ident ->
+      (String_map.find (Ident.name ident) env.scope.modules).decl.md_type
+  | Pdot (path, name, _) ->
+      let tsig =
+        get_signature ~loc
+          { env with signature = find_in_scope ~loc path env }
+          (fun fmt -> Printtyp.path fmt path) in
+      begin try
+        tsig |> find_map begin fun (item : Types.signature_item) ->
+          match item with
+          | Sig_module (ident, decl, _) when Ident.name ident = name ->
+              Some decl.md_type
+          | _ -> None
+        end
+      with Not_found ->
+        Location.raise_errorf ~loc "%s: module %s not found in %a"
+          override_name name Printtyp.path path
+      end
+  | Papply (path, _arg) ->
+      let _, _, s =
+        get_functor ~loc
+          { env with signature = find_in_scope ~loc path env }
+          (fun fmt -> Printtyp.path fmt path) in
+      s
+
+and get_functor ~loc env print_name =
+  match resolve_alias ~loc env with
+  | Mty_functor (y, t, signature) ->
+      y, t, signature
+  | Mty_signature _ ->
+      Location.raise_errorf ~loc "%s: %t is not a functor"
+        override_name print_name
+  | _ -> assert false
+
+and get_signature ~loc env print_name =
+  match resolve_alias ~loc env with
+  | Mty_signature signature -> signature
+  | Mty_functor _ ->
+      Location.raise_errorf ~loc
+        "%s: %t is a functor" override_name print_name
+  | _ -> assert false
+      
+let apply_functor ~loc modenv name =
   let y, modtype =
     match modenv.modtype with
     | None -> None, None
-    | Some { env; modtype } ->
-        match resolve_alias ~loc env modtype with
-        | Mty_functor (y, t, modtype) ->
-            Some y, Some { env; modtype }
-        | _ ->
-            Location.raise_errorf ~loc "%s: %a is not a functor"
-              override_name Printtyp.longident modenv.ident.txt in
+    | Some env ->
+        let y, _t, signature =
+          get_functor ~loc env
+            (fun fmt -> Printtyp.longident fmt modenv.ident.txt) in
+        Some y, Some { env with signature } in
   let modenv = {
     ident = modenv.ident |> map_loc
       (fun ident : Longident.t -> Lapply (ident, Lident name));
     modtype } in
   y, modenv
-
-let get_signature ~loc modenv =
-  match modenv.modtype with
-  | None -> None
-  | Some { env; modtype } ->
-      match resolve_alias ~loc env modtype with
-      | Mty_signature s -> Some (env, s)
-      | Mty_functor _ ->
-          Location.raise_errorf ~loc
-            "%s: %a is a functor" override_name Printtyp.longident
-            modenv.ident.txt
-      | _ -> assert false
 
 let make_context ?(defined_ref = ref Symbol_set.empty) modenv name
     mode ~manifest rewrite_env override_module_type = {
@@ -1476,8 +1539,15 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         match contents with
         | Contents contents ->
           let signature =
-            get_signature ~loc context.modenv |>
-            Option.map (fun (env, s) -> env, Symbol_table.of_signature s) in
+            context.modenv.modtype |> Option.map begin fun env ->
+              let signature =
+                get_signature ~loc env 
+                  (fun fmt -> Printtyp.longident fmt context.modenv.ident.txt) |>
+                Symbol_table.of_signature in
+              let scope =
+                Symbol_table.import ~target:env.scope ~source:signature.table in
+              { env with signature; scope }
+            end in
           let contents = override_contents context signature contents in
           let module_expr = module_of_ident ~loc context.modenv.ident in
           let modident =
@@ -1505,7 +1575,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             match context.mode.import, signature with
             | (Not_include | Ignore), _ -> contents
             | Include, None -> make_include None :: contents (* ocamldep *)
-            | Include, Some (_env, signature) ->
+            | Include, Some { signature; _ } ->
                 if signature.table.only_types &&
                   signature.table.types |> String_map.for_all begin
                     fun _ (decl : Symbol_table.type_decl) ->
@@ -1552,7 +1622,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               match context.mode.import with
               | Ignore -> context
               | _ ->
-                let y, modenv = get_functor ~loc context.modenv x.txt in
+                let y, modenv = apply_functor ~loc context.modenv x.txt in
                 let rewrite_env =
                   match y with
                   | None -> context.rewrite_env
@@ -1578,13 +1648,13 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               "%s: Only functors and structures are supported." override_name
 
   and override_contents (context : override_context)
-      (signature : (Env.t * Symbol_table.signature) option)
+      (env : Symbol_table.signature env option)
       (contents : Wrapper.contents) =
     contents |> flatten_map begin fun (item : Wrapper.item) ->
       let item_desc = Wrapper.destruct item in
       let loc = item_desc.loc in
-      match item_desc.txt, signature with
-      | Type (rec_flag, type_decls), Some (_env, signature) ->
+      match item_desc.txt, env with
+      | Type (rec_flag, type_decls), Some { signature; _ } ->
           let rewrite_context = current_rewrite_context context.rewrite_env in
           prepare_type_decls signature.table.types type_decls
             context.modenv.ident.txt (mk_type ~loc context rec_flag)
@@ -1593,8 +1663,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       | Module binding, _ ->
           let desc = Wrapper.destruct_module_binding binding in
           let mode = { import = Ignore; submodule = true } in
-          [override_submodule context signature mode (Module desc) []]
-      | Modtype declaration, Some (_, signature) ->
+          [override_submodule context env mode (Module desc) []]
+      | Modtype declaration, Some { signature; _ } ->
           if
             String_map.mem declaration.pmtd_name.txt
               signature.table.module_types then
@@ -1605,22 +1675,22 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             end;
           [item]
       | Extension (({ txt = "types"; _ }, PStr []), attrs),
-        Some (env, signature) ->
+        Some { env; signature; _ } ->
           import_symbols_from_signature ~loc ~only_types:true context attrs env
             signature
       | Extension (({ txt = "symbols"; _ }, PStr []), attrs),
-        Some (env, signature) ->
+        Some { env; signature; _ } ->
           import_symbols_from_signature ~loc ~only_types:false context attrs env
             signature
       | Extension (({ txt = "rewrite"; _ }, payload), attrs), _ ->
           let context = { context with
             rewrite_env = derive_rewrite_env context.rewrite_env } in
           Wrapper.destruct_payload ~loc payload |>
-          override_contents context signature
+          override_contents context env
       | Extension (({ txt = "recursive"; _ }, payload), attrs), _ ->
           let contents =
             Wrapper.destruct_payload ~loc payload |>
-            override_contents context signature in
+            override_contents context env in
           if context.modenv.modtype = None then (* ocamldep *)
             contents
           else
@@ -1635,13 +1705,13 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                 | Module _ -> true
                 | Modtype _ -> false in
               let context = { context with manifest } in
-              [override_submodule context signature mode submodule attrs]
+              [override_submodule context env mode submodule attrs]
           end
       | _ -> [item]
     end
 
   and override_submodule (context : override_context)
-      (signature : (Env.t * Symbol_table.signature) option)
+      (env : Symbol_table.signature env option)
       (mode : mode) (submodule : module_or_modtype) attrs =
     let name, add_module, find_module, override_module =
       match submodule with
@@ -1672,11 +1742,10 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           context.modenv
       | Include | Not_include ->
           let modtype =
-            match signature with
+            match env with
             | None -> None
-            | Some (env, signature) ->
-                let modtype = find_module name signature in
-                Some { env; modtype } in
+            | Some env ->
+                Some { env with signature = find_module name env.signature } in
           { ident = context.modenv.ident |> map_loc
             (fun ident : Longident.t -> Ldot (ident, name.txt));
             modtype } in
@@ -1734,7 +1803,10 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                       None
                     else
                       let env = Lazy.force lazy_env in
-                      Some { env; modtype = locate_sig env ident } in
+                      Some {
+                        env;
+                        signature = locate_sig env ident;
+                        scope = Symbol_table.empty } in
                   { ident; modtype } in
                 let rewrite_env' = derive_rewrite_env rewrite_env in
                 let context =
