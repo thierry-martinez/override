@@ -24,7 +24,7 @@ module%override Migrate_parsetree = struct
       end
 
       [%%rewrite_module Migrate_parsetree__Ast_407.Asttypes = Asttypes]
-      
+
       module type S = sig
         val equiv_core_type :
             Parsetree.core_type -> Parsetree.core_type -> bool

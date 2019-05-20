@@ -579,11 +579,23 @@ let rec get_module_type ~loc env (ident : Longident.t)
     match ident with
     | Lident name ->
         let modtype_opt =
-          match String_map.find_opt name env.scope.modules with
+          match
+            match String_map.find_opt name env.scope.modules with
+            | None -> None
+            | Some decl ->
+                if
+                  match get_alias_target decl.pmd_type with
+                  | None -> true
+                  | Some target -> target.txt <> ident
+                then
+                  Some decl.pmd_type
+                else
+                  None
+          with
+          | (Some _) as result -> result
           | None ->
               try_find_module ~loc env.env ident |>
-              Option.map Parsetree_of_types.module_type
-          | Some decl -> Some decl.pmd_type in
+              Option.map Parsetree_of_types.module_type in
         ident, modtype_opt
     | Ldot (ident, name) ->
         let ident, modtype_opt = get_module_type ~loc env ident in
@@ -610,7 +622,15 @@ let rec get_module_type ~loc env (ident : Longident.t)
             end
           end in
         Lapply (ident, arg), modtype_opt in
-  match Option.bind modtype_opt get_alias_target with
+  match
+    match Option.bind modtype_opt get_alias_target with
+    | None -> None
+    | (Some target) as result ->
+        if ident = target.txt then
+          None
+        else
+          result
+  with
   | None -> result
   | Some target -> get_module_type ~loc env target.txt
 
@@ -1337,6 +1357,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                 Symbol_table.import ~target:env.scope ~source:signature.table in
               { env with signature; scope }
             end in
+          
           let contents = override_contents context signature contents in
           let module_expr = module_of_ident ~loc context.modenv.ident in
           let modident =
