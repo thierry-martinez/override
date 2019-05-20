@@ -1,0 +1,6 @@
+(library
+  (name parsetree_of_types)
+  (public_name override.parsetree_of_types)
+  (preprocess (pps ppxlib.metaquot))
+  (flags -open Stdcompat)
+  (libraries compiler-libs.common ocaml-migrate-parsetree stdcompat))

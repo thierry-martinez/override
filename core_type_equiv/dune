@@ -2,6 +2,4 @@
   (name core_type_equiv)
   (public_name override.core_type_equiv)
   (preprocess (staged_pps boot ppxlib.metaquot ppx_deriving.eq))
-; -warning 3: Deprecated module Ast_407
-  (flags -w -3)
   (libraries compiler-libs.common ppxlib))

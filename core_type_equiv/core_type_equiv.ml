@@ -5,11 +5,15 @@ module%override Migrate_parsetree = struct
         [%%types] [@@deriving eq]
       end
 
+      [%%rewrite_module Migrate_parsetree__Ast_407.Longident = Longident]
+
       module%override Location = struct
         let equal _ _ = true
 
         type 'a loc = _ [@@deriving eq]
       end
+
+      [%%rewrite_module Migrate_parsetree__Ast_407.Location = Location]
 
       module%override Asttypes = struct
         type 'a loc [@@rewrite] [@@remove]
@@ -18,6 +22,8 @@ module%override Migrate_parsetree = struct
     
         [%%types] [@@deriving eq]
       end
+
+      [%%rewrite_module Migrate_parsetree__Ast_407.Asttypes = Asttypes]
       
       module type S = sig
         val equiv_core_type :
@@ -39,6 +45,8 @@ module%override Migrate_parsetree = struct
     end
   end
 end
+
+let equal_loc = Migrate_parsetree.OCaml_407.Ast.Location.equal_loc
 
 let equiv_core_type equiv t0 t1 =
   let module Equiv =

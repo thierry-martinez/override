@@ -6,7 +6,8 @@
 ; +warning 34: Unused type declaration.
 ; -warning 40: Constructor or label name used out of scope. (OCaml <=4.06.0)
   (flags -open Stdcompat -w +32+34-40)
-  (libraries compiler-libs.common ppxlib stdcompat ast_wrapper))
+  (libraries compiler-libs.common ppxlib stdcompat ast_wrapper
+    parsetree_of_types))
 
 (rule
   (targets boot.ml)
