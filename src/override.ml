@@ -1503,6 +1503,13 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             contents
           else
             Option.to_list (make_recursive ~loc contents attrs)
+      | Extension (({ txt = "print_rewrite_system"; _ }, _payload), _attrs), _ ->
+          let rewrite_context = current_rewrite_context context.rewrite_env in
+          rewrite_context.rewrite_system |> List.iter (fun (lhs, rhs) ->
+            Format.fprintf Format.err_formatter "%a -> %a@."
+              Pprintast.core_type (From.copy_core_type lhs)
+              Pprintast.core_type (From.copy_core_type rhs));
+          []
       | Extension ((extension_name, payload), attrs), _ ->
           begin match mode_of_string extension_name.txt with
           | exception (Invalid_argument _) -> [item]
@@ -1596,6 +1603,14 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         | None -> Wrapper.empty ~loc
         | Some item -> item
         end
+    | Extension (({ txt = "print_rewrite_system"; _ }, _payload), _attrs) ->
+        let rewrite_env = force_rewrite_env context.rewrite_env in
+        let rewrite_context = current_rewrite_context rewrite_env in
+        rewrite_context.rewrite_system |> List.iter (fun (lhs, rhs) ->
+          Format.fprintf Format.err_formatter "%a -> %a@."
+            Pprintast.core_type (From.copy_core_type lhs)
+            Pprintast.core_type (From.copy_core_type rhs));
+        Wrapper.empty ~loc
     | Extension ((extension_name, payload), attrs) ->
         begin match mode_of_string extension_name.txt with
         | exception (Invalid_argument _) -> item

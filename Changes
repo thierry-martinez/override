@@ -1,4 +1,6 @@
-# future version
+# override 0.2.0, 2019-07-01
+
+- compatibility with OCaml 4.08.0
 
 - remove dependency to ppx_tools
 

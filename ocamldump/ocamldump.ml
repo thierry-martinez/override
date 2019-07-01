@@ -15,7 +15,7 @@ let main files =
   files |> List.iter dump
 
 let files =
-  let doc = "File to print" in
+  let doc = "Files to print" in
   Cmdliner.Arg.(
     value & pos_all non_dir_file [] &
     info [] ~docv:"FILE" ~doc)
@@ -24,7 +24,7 @@ let options = Cmdliner.Term.(
     const main $ files)
 
 let info =
-  let doc = "print OCaml object files" in
+  let doc = "Dump OCaml files" in
   let man = [
       `S Cmdliner.Manpage.s_bugs;
       `P "Email bug reports to <thierry.martinez@inria.fr>.";

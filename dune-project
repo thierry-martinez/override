@@ -1,1 +1,22 @@
-(lang dune 1.9)
+(lang dune 1.10)
+
+(generate_opam_files true)
+
+(license MIT)
+(maintainers "Thierry Martinez <thierry.martinez@inria.fr>")
+(authors "Thierry Martinez <thierry.martinez@inria.fr>")
+(source (uri "https://gitlab.inria.fr/tmartine/override"))
+
+(package
+ (name override)
+ (synopsis "PPX extension for overriding modules")
+ (description "\
+PPX extensions [%%override], [%%import], [%%include] and [%%rewrite] to import
+and change module interfaces.
+")
+ (depends
+  (dune (>= 1.10.0))
+  (ppxlib (>= 0.6.0))
+  (stdcompat (>= 9))
+  (ppx_show (>= 0.1.0))
+  (cppo (>= 1.6.4))))

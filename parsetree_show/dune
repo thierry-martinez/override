@@ -1,7 +1,8 @@
-(executable
+(library
   (name parsetree_show)
-  (preprocess (staged_pps override ppxlib.metaquot ppx_deriving.show))
-  (libraries compiler-libs.common))
+  (public_name override.parsetree_show)
+  (preprocess (staged_pps override ppxlib.metaquot ppx_show))
+  (libraries compiler-libs.common ppx_show.runtime))
 
 (rule
   (targets parsetree_show.ml)

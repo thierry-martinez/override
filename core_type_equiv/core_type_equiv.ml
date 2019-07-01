@@ -1,8 +1,10 @@
+open Ppx_compare_lib.Builtin
+
 module%override Migrate_parsetree = struct
   module%override OCaml_407 = struct
     module%override Ast = struct
       module%override Longident = struct
-        [%%types] [@@deriving eq]
+        [%%recursive [%%types]] [@@deriving equal]
       end
 
       [%%rewrite_module Migrate_parsetree__Ast_407.Longident = Longident]
@@ -10,7 +12,7 @@ module%override Migrate_parsetree = struct
       module%override Location = struct
         let equal _ _ = true
 
-        type 'a loc = _ [@@deriving eq]
+        type 'a loc = _ [@@deriving equal]
       end
 
       [%%rewrite_module Migrate_parsetree__Ast_407.Location = Location]
@@ -20,7 +22,7 @@ module%override Migrate_parsetree = struct
       
         type constant [@@remove]
     
-        [%%types] [@@deriving eq]
+        [%%recursive [%%types]] [@@deriving equal]
       end
 
       [%%rewrite_module Migrate_parsetree__Ast_407.Asttypes = Asttypes]
@@ -32,14 +34,17 @@ module%override Migrate_parsetree = struct
       
       module Make (X: S) = struct
         module%include Parsetree = struct
-          type core_type = Parsetree.core_type [@equal X.equiv_core_type]
-                [@@rewrite] [@@remove]
+          type rec_type = Parsetree.core_type
+
+          let equal_rec_type = X.equiv_core_type
+
+          type core_type = rec_type [@@rewrite] [@@remove]
     
           type toplevel_phrase and co [@@remove]
       
-          [%%types] [@@deriving eq]
+          [%%recursive [%%types]] [@@deriving equal]
       
-          type core_type = _ [@@deriving eq]
+          type core_type = _ [@@deriving equal]
         end
       end
     end

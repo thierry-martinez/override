@@ -23,9 +23,5 @@ module%override Asttypes : sig
 end
 
 module%override Parsetree : sig
-  type toplevel_phrase and co [@@remove]
-
   [%%types] [@@deriving show]
-
-  type toplevel_phrase = _ and co
 end

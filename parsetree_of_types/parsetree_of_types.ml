@@ -44,8 +44,10 @@ let convert_payload (payload : Parsetree.payload)
 
 let convert_attributes (attributes : Parsetree.attributes)
     : OCaml_version.Ast.Parsetree.attributes =
-  attributes |> List.map begin fun (name, payload) ->
-    (name, convert_payload payload)
+  attributes |> List.map begin fun attribute ->
+    match Compat.convert_attribute attribute with
+      { attr_name = name; attr_payload = payload; _ } ->
+        (name, convert_payload payload)
   end
 
 module Int_map = Map.Make (struct
@@ -226,14 +228,22 @@ let type_declaration name (decl : Types.type_declaration)
 
 let type_rec_next (tsig : Types.signature) =
   match tsig with
-  | Sig_type (ident, decl, Trec_next) :: tail ->
-      Some ((ident, decl), tail)
+  | item :: tail ->
+      begin match Compat.convert_signature_item item with
+      | Sig_type (ident, decl, Trec_next, _) ->
+          Some ((ident, decl), tail)
+      | _ -> None
+      end
   | _ -> None
 
 let module_rec_next (tsig : Types.signature) =
   match tsig with
-  | Sig_module (ident, decl, Trec_next) :: tail ->
-      Some ((ident, decl), tail)
+  | item :: tail ->
+      begin match Compat.convert_signature_item item with
+      | Sig_module (ident, _, decl, Trec_next, _) ->
+          Some ((ident, decl), tail)
+      | _ -> None
+      end
   | _ -> None
 
 let rec cut_sequence cut_item accu sequence =
@@ -268,39 +278,41 @@ let rec signature (tsig : Types.signature)
     : OCaml_version.Ast.Parsetree.signature =
   match tsig with
   | [] -> []
-  | Sig_value (ident, desc) :: tail ->
-      let desc = value_description (Ident.name ident) desc in
-      OCaml_version.Ast.Ast_helper.Sig.value desc ::
-      signature tail
-  | Sig_type (ident, decl, rec_status) :: tail ->
-      let rec_flag, group, tail =
-        cut_rec type_rec_next rec_status (ident, decl) tail in
-      let group = group |> List.map begin fun (ident, decl) ->
-        type_declaration (Ident.name ident) decl
-      end in
-      OCaml_version.Ast.Ast_helper.Sig.type_ rec_flag group ::
-      signature tail
-  | Sig_module (ident, decl, rec_status) :: tail ->
-      let rec_flag, modules, tail =
-        cut_rec module_rec_next rec_status (ident, decl) tail in
-      let modules = modules |> List.map module_declaration in
-      let item =
-        match rec_flag with
-        | Nonrecursive ->
-            let module_ =
-              match modules with
-              | [module_] -> module_
-              | _ -> assert false in
-            OCaml_version.Ast.Ast_helper.Sig.module_ module_
-        | Recursive ->
-            OCaml_version.Ast.Ast_helper.Sig.rec_module modules in
-      item :: signature tail
-  | Sig_modtype (ident, decl) :: tail ->
-      OCaml_version.Ast.Ast_helper.Sig.modtype
-        (modtype_declaration ident decl) :: signature tail
-  | _ :: tail ->
-      (* TODO: ignored items! *)
-      signature tail
+  | item :: tail ->
+      match Compat.convert_signature_item item with
+      | Sig_value (ident, desc, _) ->
+          let desc = value_description (Ident.name ident) desc in
+          OCaml_version.Ast.Ast_helper.Sig.value desc ::
+          signature tail
+      | Sig_type (ident, decl, rec_status, _) ->
+          let rec_flag, group, tail =
+            cut_rec type_rec_next rec_status (ident, decl) tail in
+          let group = group |> List.map begin fun (ident, decl) ->
+            type_declaration (Ident.name ident) decl
+          end in
+          OCaml_version.Ast.Ast_helper.Sig.type_ rec_flag group ::
+          signature tail
+      | Sig_module (ident, _, decl, rec_status, _) ->
+          let rec_flag, modules, tail =
+            cut_rec module_rec_next rec_status (ident, decl) tail in
+          let modules = modules |> List.map module_declaration in
+          let item =
+            match rec_flag with
+            | Nonrecursive ->
+                let module_ =
+                  match modules with
+                  | [module_] -> module_
+                  | _ -> assert false in
+                OCaml_version.Ast.Ast_helper.Sig.module_ module_
+            | Recursive ->
+                OCaml_version.Ast.Ast_helper.Sig.rec_module modules in
+          item :: signature tail
+      | Sig_modtype (ident, decl, _) ->
+          OCaml_version.Ast.Ast_helper.Sig.modtype
+            (modtype_declaration ident decl) :: signature tail
+      | _ ->
+          (* TODO: ignored items! *)
+          signature tail
 
 and module_declaration (ident, (md : Types.module_declaration)) =
   let loc = md.md_loc in
@@ -326,6 +338,9 @@ and module_type (mt : Types.module_type) =
       let t = t |> Option.map module_type in
       let s = module_type s in
       OCaml_version.Ast.Ast_helper.Mty.functor_ (mkloc (Ident.name x)) t s
-  | Mty_alias (_, p) ->
-      OCaml_version.Ast.Ast_helper.Mty.alias
-        (mkloc (Untypeast.lident_of_path p))
+  | Mty_alias _ ->
+      match Compat.alias_of_module_type mt with
+      | Some p ->
+          OCaml_version.Ast.Ast_helper.Mty.alias
+            (mkloc (Untypeast.lident_of_path p))
+      | None -> assert false

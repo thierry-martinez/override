@@ -57,7 +57,9 @@ recursive block" *)
     type toplevel_phrase and co [@@remove]
 
     [%%types]
-  end]
+  end
+
+  [%%print_rewrite_system]]
        [@@deriving eq]
 
 let test () =
