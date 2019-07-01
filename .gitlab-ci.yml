@@ -1,17 +1,32 @@
+stages:
+  - prepare
+  - build
+
+make opam file:
+  stage: prepare
+  script:
+    - dune build override.opam
+
 .build and test: &build_and_test_def
+  stage: build
   script:
     - docker run --rm --volume $PWD:/override ocaml/opam2:$ocaml_version
         /override/ci-scripts/build_and_test.sh file:///override/
-
-build and test on 4.07:
-  <<: *build_and_test_def
-  variables:
-    ocaml_version: "4.07"
 
 opam pin and install:
   script:
     - docker run --rm --volume $PWD:/override ocaml/opam2:4.07
         /override/ci-scripts/opam-pin_and_install.sh file:///override/
+
+build and test on 4.08:
+  <<: *build_and_test_def
+  variables:
+    ocaml_version: "4.08"
+
+build and test on 4.07:
+  <<: *build_and_test_def
+  variables:
+    ocaml_version: "4.07"
 
 build and test on 4.06:
   <<: *build_and_test_def
