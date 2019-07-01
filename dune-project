@@ -2,7 +2,7 @@
 
 (generate_opam_files true)
 
-(license MIT)
+(license BSD)
 (maintainers "Thierry Martinez <thierry.martinez@inria.fr>")
 (authors "Thierry Martinez <thierry.martinez@inria.fr>")
 (source (uri "git+https://gitlab.inria.fr/tmartine/override"))
