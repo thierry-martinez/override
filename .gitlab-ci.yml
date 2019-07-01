@@ -6,7 +6,7 @@ make opam file:
   stage: prepare
   script:
     - opam update
-    - opam upgrade
+    - opam upgrade --yes
     - dune build override.opam
 
 .build and test: &build_and_test_def
