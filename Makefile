@@ -9,7 +9,7 @@ examples := $(notdir $(wildcard $(examples_dir)/*))
 
 .PHONY : all
 all :
-	$(DUNE) build src/override.cmxa
+	$(DUNE) build
 
 .PHONY : clean
 clean :
