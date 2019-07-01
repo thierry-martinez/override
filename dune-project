@@ -5,7 +5,10 @@
 (license MIT)
 (maintainers "Thierry Martinez <thierry.martinez@inria.fr>")
 (authors "Thierry Martinez <thierry.martinez@inria.fr>")
-(source (uri "https://gitlab.inria.fr/tmartine/override"))
+(source (uri "git+https://gitlab.inria.fr/tmartine/override"))
+(homepage "https://gitlab.inria.fr/tmartine/override")
+(bug_reports "https://gitlab.inria.fr/tmartine/override")
+(documentation "https://gitlab.inria.fr/tmartine/override")
 
 (package
  (name override)
