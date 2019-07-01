@@ -8,6 +8,9 @@ make opam file:
     - opam update
     - opam upgrade --yes
     - dune build override.opam
+  artifacts:
+    paths:
+      - override.opam
 
 .build and test: &build_and_test_def
   stage: build
