@@ -29,10 +29,13 @@
     type package_type = _ [@@deriving show]
   end]
 
+let core_type_of_string s =
+  let lexbuf = Lexing.from_string s in
+  Parser.parse_core_type Lexer.token lexbuf
+
 let test () =
-  let loc = Location.none in
   let ptyp =
-    match ([%type: (module S with type t1 = t2)] : Parsetree.core_type) with
+    match core_type_of_string {|(module S with type t1 = t2)|} with
     | { ptyp_desc = Ptyp_package ptyp; _ } -> ptyp
     | _ -> assert false in
   assert (show_package_type ptyp = "(S, [(t1, t2)])")

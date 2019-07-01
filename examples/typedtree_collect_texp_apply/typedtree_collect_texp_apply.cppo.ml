@@ -100,6 +100,7 @@ let collector =
     method env = any
     method constructor_description = any
     method concr = any
+    method module_presence = any
   end
 
 let collect_texp_apply_from_structure (structure : Typedtree.structure)

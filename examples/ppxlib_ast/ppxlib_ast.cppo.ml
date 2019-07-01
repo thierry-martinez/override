@@ -2,6 +2,8 @@
    described in the comments of
    https://github.com/ocaml-ppx/ppxlib/blob/master/ast/ast.ml *)
 
+open Ppx_compare_lib.Builtin
+
 (* "- replacing app [type ...] by [and ...] to make everything one
 recursive block" *)
 [%%recursive
@@ -60,11 +62,16 @@ recursive block" *)
   end
 
   [%%print_rewrite_system]]
-       [@@deriving eq]
+       [@@deriving equal]
+
+let structure_of_string s =
+  let lexbuf = Lexing.from_string s in
+  Parser.implementation Lexer.token lexbuf
 
 let test () =
-  let loc = Location.none in
-  assert (equal_structure [%str (1, 2)] [%str (1, 2)]);
-  assert (not (equal_structure [%str (1, "a")] [%str (1, "b")]))
+  assert (equal_structure
+       (structure_of_string "(1, 2)") (structure_of_string "(1, 2)"));
+  assert (not (equal_structure
+       (structure_of_string {|(1, "a")|}) (structure_of_string {|(1, "b")|})))
 
 let () = test ()

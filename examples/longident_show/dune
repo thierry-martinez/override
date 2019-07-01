@@ -1,4 +1,4 @@
 (executable
   (name longident_show)
-  (preprocess (staged_pps override ppx_deriving.show))
-  (libraries compiler-libs.common))
+  (preprocess (staged_pps override ppx_show))
+  (libraries compiler-libs.common ppx_show.runtime))
