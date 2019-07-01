@@ -22,4 +22,5 @@ and change module interfaces.
   (ppxlib (>= 0.6.0))
   (stdcompat (>= 9))
   (ppx_show (>= 0.1.0))
+  (ppx_compare (>= v0.12.0))
   (cppo (>= 1.6.4))))
