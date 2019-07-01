@@ -8,5 +8,13 @@ URL="$1"
 cd ~/opam-repository
 git pull
 opam update
+
+# ppx_show still not available on opam
+cd ~
+git clone https://gitlab.inria.fr/tmartine/ppx_show
+cd ppx_show
+dune build ppx_show.opam
+git pin add --yes --no-action "file://$PWD/"
+
 opam pin add --yes --no-action "$URL"
 opam depext --yes --install override
