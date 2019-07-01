@@ -13,6 +13,7 @@ opam update
 cd ~
 git clone https://gitlab.inria.fr/tmartine/ppx_show
 cd ppx_show
+opam install --yes dune
 dune build ppx_show.opam
 git pin add --yes --no-action "file://$PWD/"
 
