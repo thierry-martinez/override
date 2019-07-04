@@ -28,6 +28,9 @@ install :
 .PHONY : examples
 examples : $(examples)
 
+override.opam : dune-project
+	dune build override.opam
+
 define foreach_example
 .PHONY : $(example)
 $(example) :
