@@ -1272,11 +1272,14 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         begin match item with
         | Type group ->
             begin match
-              decl_of_list ~loc attrs modident
+              decl_of_list ~loc [] modident
                 rewrite_context group.decls context.overriden_ref
                 context.defined_ref with
             | [] -> None
-            | decls -> Some (mk_type ~loc context group.rec_flag decls)
+            | hd :: tl ->
+                let ptype_attributes = attrs @ hd.ptype_attributes in
+                let decls = { hd with ptype_attributes } :: tl in
+                Some (mk_type ~loc context group.rec_flag decls)
             end
         | Modtype decl ->
             if decl.imported then

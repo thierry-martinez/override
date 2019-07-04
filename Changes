@@ -1,3 +1,10 @@
+# override 0.2.1, 2019-07-04
+
+- attributes applied on `[%%types]` are applied once by declaration
+  group. (Previously, attributes were applied to each types in a group,
+  leading ppxlib's deriving to make n * n expansions for a group of
+  n types -- one for each type/attribute pair).
+
 # override 0.2.0, 2019-07-01
 
 - compatibility with OCaml 4.08.0

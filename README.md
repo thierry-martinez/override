@@ -202,6 +202,9 @@ recursive in the overriden module (to gather independent types in a
 single mutually recursive group, see the next section about the
 `[%%recursive]` extension).
 
+Attributes applied on `[%%types]` are applied once by declaration
+group.
+
 For example, we may try to derive `show` for all types of OCaml `Parsetree`,
 using the package `compiler-libs.common`.
 
