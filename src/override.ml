@@ -1271,13 +1271,26 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       fun (item : Symbol_table.item) ->
         begin match item with
         | Type group ->
+            let rev_override_attrs, rev_other_attrs =
+              attrs |> List.fold_left begin
+                fun (rev_override_attrs, rev_other_attrs)
+                    (attr : Parsetree.attribute) ->
+                  let attr_name = (fst attr).txt in
+                  if attr_name = attr_from || attr_name = attr_rewrite
+                || attr_name = attr_remove then
+                    (attr :: rev_override_attrs, rev_other_attrs)
+                  else
+                    (rev_override_attrs, attr :: rev_other_attrs)
+              end ([], []) in
+            let override_attrs = List.rev rev_override_attrs in
+            let other_attrs = List.rev rev_other_attrs in
             begin match
-              decl_of_list ~loc [] modident
+              decl_of_list ~loc override_attrs modident
                 rewrite_context group.decls context.overriden_ref
                 context.defined_ref with
             | [] -> None
             | hd :: tl ->
-                let ptype_attributes = attrs @ hd.ptype_attributes in
+                let ptype_attributes = other_attrs @ hd.ptype_attributes in
                 let decls = { hd with ptype_attributes } :: tl in
                 Some (mk_type ~loc context group.rec_flag decls)
             end
