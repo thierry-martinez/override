@@ -43,7 +43,7 @@ module%override Migrate_parsetree = struct
           [%%recursive [%%types]] [@@deriving eq]
 
           type core_type = _ [@@deriving eq]
-        end
+        end[@@ocaml.warning "-43"]
       end
     end
   end
