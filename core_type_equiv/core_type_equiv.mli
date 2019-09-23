@@ -1,4 +1,4 @@
-open Migrate_parsetree.OCaml_407.Ast
+open Migrate_parsetree.OCaml_408.Ast
 
 val equal_loc :
     ('a -> 'a -> bool) -> 'a Location.loc -> 'a Location.loc -> bool

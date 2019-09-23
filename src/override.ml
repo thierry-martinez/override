@@ -1,4 +1,4 @@
-module OCaml_version = Migrate_parsetree.OCaml_407
+module OCaml_version = Migrate_parsetree.OCaml_408
 
 module From = Migrate_parsetree.Convert (OCaml_version)
     (Migrate_parsetree.OCaml_current)
@@ -431,7 +431,7 @@ module Zipper = struct
     List.rev_append zipper.previous zipper.next
 end
 
-let attr_name_is name (({ txt; _}, _) : Parsetree.attribute) =
+let attr_name_is name ({ attr_name = { txt; _}; _ } : Parsetree.attribute) =
   txt = name
 
 let has_attr name attributes =
@@ -441,7 +441,7 @@ let find_attr_type ~loc name attributes =
   match Zipper.find (attr_name_is name) attributes with
   | None -> None
   | Some zipper ->
-      match snd zipper.current with
+      match zipper.current.attr_payload with
       | PTyp ty -> Some (zipper, ty)
       | _ -> Location.raise_errorf ~loc "Type expected"
 
@@ -463,7 +463,8 @@ let import_type_declaration ~loc rewrite_context ?modident name
           if has_attr attr_rewrite attrs && not (has_attr attr_from attrs) then
             let imported_type = Ast_helper.Typ.constr
                 (ident_of_name from_name) params in
-            (Parsetree_of_types.mkloc attr_from, PTyp imported_type) :: attrs
+            Ast_helper.Attr.mk
+              (Parsetree_of_types.mkloc attr_from) (PTyp imported_type) :: attrs
           else
             attrs in
         Some typ, attrs
@@ -904,7 +905,7 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
   type_decls |> List.filter_map begin
     fun (decl : Parsetree.type_declaration) ->
       match Zipper.find (attr_name_is attr_rewrite) decl.ptype_attributes with
-      | Some ({ current = (_, PStr []); _ } as zipper) ->
+      | Some ({ current = { attr_payload = PStr []; _ }; _ } as zipper) ->
           begin match rewrite_system_ref with
           | None ->
               Location.raise_errorf ~loc:decl.ptype_loc
@@ -1093,9 +1094,12 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
               | None -> []
               | Some decl -> decl.ptype_attributes in
             Ast_helper.Type.mk name ~params ~attrs:(([
-              Parsetree_of_types.mkloc attr_from, PTyp from_type;
-              Parsetree_of_types.mkloc attr_rewrite, PStr [];
-              Parsetree_of_types.mkloc attr_remove, PStr []] : Parsetree.attributes) @ attrs)
+              Ast_helper.Attr.mk
+                (Parsetree_of_types.mkloc attr_from) (PTyp from_type);
+              Ast_helper.Attr.mk
+                (Parsetree_of_types.mkloc attr_rewrite) (PStr []);
+              Ast_helper.Attr.mk
+                (Parsetree_of_types.mkloc attr_remove) (PStr [])]) @ attrs)
           end
         end
       else
@@ -1275,7 +1279,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               attrs |> List.fold_left begin
                 fun (rev_override_attrs, rev_other_attrs)
                     (attr : Parsetree.attribute) ->
-                  let attr_name = (fst attr).txt in
+                  let attr_name = attr.attr_name.txt in
                   if attr_name = attr_from || attr_name = attr_rewrite
                 || attr_name = attr_remove then
                     (attr :: rev_override_attrs, rev_other_attrs)

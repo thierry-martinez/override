@@ -1,4 +1,4 @@
-module OCaml_version = Migrate_parsetree.OCaml_407
+module OCaml_version = Migrate_parsetree.OCaml_408
 
 val mkloc : 'a -> 'a Location.loc
 

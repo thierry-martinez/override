@@ -1,4 +1,4 @@
-module OCaml_version = Migrate_parsetree.OCaml_407
+module OCaml_version = Migrate_parsetree.OCaml_408
 
 module Ast_helper = OCaml_version.Ast.Ast_helper
 module Ast_mapper = OCaml_version.Ast.Ast_mapper

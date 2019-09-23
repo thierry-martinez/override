@@ -1,4 +1,4 @@
-module OCaml_version = Migrate_parsetree.OCaml_407
+module OCaml_version = Migrate_parsetree.OCaml_408
 
 module Parsetree = OCaml_version.Ast.Parsetree
 
@@ -25,22 +25,26 @@ let equal_payload equal_core_type
   | _ -> false
 
 let equal_attributes equal_core_type l0 l1 =
-  equal_list (equal_pair ( = ) (equal_payload equal_core_type)) l0 l1
+  equal_list (fun (a0 : Parsetree.attribute) (a1 : Parsetree.attribute) ->
+    a0.attr_name = a1.attr_name &&
+    equal_payload equal_core_type a0.attr_payload a1.attr_payload) l0 l1
 
 let equal_object_field equal_core_type
     (f0 : Parsetree.object_field) (f1 : Parsetree.object_field) =
-  match f0, f1 with
-  | Otag (l0, a0, t0), Otag (l1, a1, t1) ->
-      l0.txt = l1.txt && equal_attributes equal_core_type a0 a1 &&
+  equal_attributes equal_core_type f0.pof_attributes f1.pof_attributes &&
+  match f0.pof_desc, f1.pof_desc with
+  | Otag (l0, t0), Otag (l1, t1) ->
+      l0.txt = l1.txt  &&
       equal_core_type t0 t1
   | Oinherit t0, Oinherit t1 -> equal_core_type t0 t1
   | _ -> false
 
 let equal_row_field equal_core_type
     (f0 : Parsetree.row_field) (f1 : Parsetree.row_field) =
-  match f0, f1 with
-  | Rtag (l0, a0, b0, t0), Rtag (l1, a1, b1, t1) ->
-      l0.txt = l1.txt && equal_attributes equal_core_type a0 a1 && b0 = b1 &&
+  equal_attributes equal_core_type f0.prf_attributes f1.prf_attributes &&
+  match f0.prf_desc, f1.prf_desc with
+  | Rtag (l0, b0, t0), Rtag (l1, b1, t1) ->
+      l0.txt = l1.txt && b0 = b1 &&
       equal_list equal_core_type t0 t1
   | Rinherit t0, Rinherit t1 -> equal_core_type t0 t1
   | _ -> false

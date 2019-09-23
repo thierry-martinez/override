@@ -1,4 +1,4 @@
-module OCaml_version = Migrate_parsetree.OCaml_407
+module OCaml_version = Migrate_parsetree.OCaml_408
 
 module To = Migrate_parsetree.Convert
     (Migrate_parsetree.OCaml_current) (OCaml_version)
@@ -44,10 +44,11 @@ let convert_payload (payload : Parsetree.payload)
 
 let convert_attributes (attributes : Parsetree.attributes)
     : OCaml_version.Ast.Parsetree.attributes =
-  attributes |> List.map begin fun attribute ->
+  attributes |> List.map begin
+    fun attribute : OCaml_version.Ast.Parsetree.attribute ->
     match Compat.convert_attribute attribute with
-      { attr_name = name; attr_payload = payload; _ } ->
-        (name, convert_payload payload)
+      { attr_name; attr_payload; attr_loc } ->
+        { attr_name; attr_payload = convert_payload attr_payload; attr_loc }
   end
 
 module Int_map = Map.Make (struct
@@ -152,8 +153,10 @@ and list_of_fields context accu (type_expr : Types.type_expr)
   match type_expr.desc with
   | Tnil -> List.rev accu, Closed
   | Tfield (name, _kind, ty, tail) ->
+      let field = OCaml_version.Ast.Ast_helper.Of.mk
+        (Otag (mkloc name, core_type_of_type_expr context ty)) in
       list_of_fields context
-        (Otag (mkloc name, [], core_type_of_type_expr context ty) :: accu)
+        (field :: accu)
         tail
   | Tvar _ -> List.rev accu, Open
   | _ ->
@@ -162,12 +165,14 @@ and list_of_fields context accu (type_expr : Types.type_expr)
 and convert_row_field context (label, (row_field : Types.row_field))
     : OCaml_version.Ast.Parsetree.row_field =
   let label = mkloc label in
-  match row_field with
-  | Rpresent None -> Rtag (label, [], true, [])
+  OCaml_version.Ast.Ast_helper.Rf.mk
+  begin match row_field with
+  | Rpresent None -> Rtag (label, true, [])
   | Rpresent (Some ttyp) ->
       let args = [core_type_of_type_expr context ttyp] in
-      Rtag (label, [], false, args)
-  | _ -> Rtag (label, [], true, [])
+      Rtag (label, false, args)
+  | _ -> Rtag (label, true, [])
+  end
 
 let core_type_of_type_expr type_expr =
   core_type_of_type_expr (create_type_conversion_context ()) type_expr
