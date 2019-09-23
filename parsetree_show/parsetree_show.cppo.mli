@@ -1,4 +1,4 @@
-#if OCAML_VERSION >= (4, 07, 0)
+#if OCAML_VERSION >= (4, 07, 0) && OCAML_VERSION < (4, 09, 0)
   module%override Stdlib : sig
     module%override Lexing : sig
       type position = _ [@@rewrite] [@@deriving show]

@@ -1,4 +1,4 @@
-#if OCAML_VERSION >= (4, 07, 0)
+#if OCAML_VERSION >= (4, 07, 0) && OCAML_VERSION < (4, 09, 0)
   module%override Stdlib = struct
     module%override Lexing = struct
       type position = _ [@@deriving show]

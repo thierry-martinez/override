@@ -80,7 +80,11 @@ let lazy_env = lazy (
      modules. On the other hand, setting recursive_types more often
      than necessary does not seem harmful. *)
   Clflags.recursive_types := true;
+#if OCAML_VERSION >= (4, 09, 0)
+  Compmisc.init_path ();
+#else
   Compmisc.init_path false;
+#endif
   Compmisc.initial_env ()
 )
 
