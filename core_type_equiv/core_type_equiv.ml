@@ -32,6 +32,8 @@ module%override Migrate_parsetree = struct
 
       module Make (X: S) = struct
         module%include Parsetree = struct
+          [@@@ocaml.warning "-32"]
+
           type rec_type = Parsetree.core_type
 
           let equal_rec_type = X.equiv_core_type
@@ -43,7 +45,7 @@ module%override Migrate_parsetree = struct
           [%%recursive [%%types]] [@@deriving eq]
 
           type core_type = _ [@@deriving eq]
-        end[@@ocaml.warning "-32"]
+        end
       end
     end
   end
