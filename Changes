@@ -1,3 +1,9 @@
+# override 0.2.2, 2019-09-27
+
+- support for OCaml 4.09
+
+- compatible with the last versions of ppxlib and ppx_deriving
+
 # override 0.2.1, 2019-07-04
 
 - attributes applied on `[%%types]` are applied once by declaration
