@@ -1,6 +1,7 @@
 stages:
   - prepare
   - build
+  - snapshot
 
 make opam file:
   stage: prepare
@@ -50,6 +51,7 @@ build and test on 4.04:
     ocaml_version: "4.04"
 
 snapshot:
+  stage: snapshot
   only:
     refs:
       - master
