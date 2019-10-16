@@ -2,8 +2,6 @@
    described in the comments of
    https://github.com/ocaml-ppx/ppxlib/blob/master/ast/ast.ml *)
 
-open Ppx_compare_lib.Builtin
-
 (* "- replacing app [type ...] by [and ...] to make everything one
 recursive block" *)
 [%%recursive
@@ -62,7 +60,7 @@ recursive block" *)
   end
 
   [%%print_rewrite_system]]
-       [@@deriving equal]
+       [@@deriving eq]
 
 let structure_of_string s =
   let lexbuf = Lexing.from_string s in

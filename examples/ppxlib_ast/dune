@@ -1,6 +1,6 @@
 (executable
   (name ppxlib_ast)
-  (preprocess (staged_pps override ppxlib.metaquot ppx_compare))
+  (preprocess (staged_pps override ppxlib.metaquot ppx_deriving.std))
   (libraries compiler-libs.common))
 
 (rule
