@@ -48,3 +48,12 @@ build and test on 4.04:
   <<: *build_and_test_def
   variables:
     ocaml_version: "4.04"
+
+snapshot:
+  only:
+    refs:
+      - master
+  script:
+    - wget https://gitlab.inria.fr/tmartine/redirect/raw/master/snapshot.sh
+    - chmod +x snapshot.sh
+    - ./snapshot.sh
