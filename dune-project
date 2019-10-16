@@ -2,6 +2,7 @@
 
 (generate_opam_files true)
 
+(name override)
 (license BSD)
 (maintainers "Thierry Martinez <thierry.martinez@inria.fr>")
 (authors "Thierry Martinez <thierry.martinez@inria.fr>")
