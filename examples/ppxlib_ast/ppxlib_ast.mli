@@ -1,15 +1,14 @@
 [%%recursive:
-#if OCAML_VERSION >= (4, 07, 0)
-  module%import Stdlib : sig
+  [%%meta if Sys.ocaml_version >= "4.07.0" then [%sigi:
+    module%import Stdlib : sig
+      module%import Lexing : sig
+        type position = _ [@@rewrite]
+      end
+    end]
+  else [%sigi:
     module%import Lexing : sig
       type position = _ [@@rewrite]
-    end
-  end
-#else
-  module%import Lexing : sig
-    type position = _ [@@rewrite]
-  end
-#endif
+    end]]
 
   module%import Location : sig
     type location = _ [@@from: t] [@@rewrite]

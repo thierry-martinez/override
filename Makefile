@@ -1,5 +1,6 @@
 DUNE := dune
 DUNE_PREFIX := _build/default
+FLAGS =
 
 examples_dir = examples
 examples := $(notdir $(wildcard $(examples_dir)/*))
@@ -9,32 +10,31 @@ examples := $(notdir $(wildcard $(examples_dir)/*))
 
 .PHONY : all
 all :
-	$(DUNE) build
+	$(DUNE) build $(FLAGS)
 
 .PHONY : clean
 clean :
-	$(DUNE) clean
+	$(DUNE) clean $(FLAGS)
 
 .PHONY : tests
 tests :
-	$(DUNE) build tests/tests.exe
-	$(DUNE_PREFIX)/tests/tests.exe
-
-.PHONY : install
-install :
-	$(DUNE) build @install
-	$(DUNE) install
+	$(DUNE) runtest $(FLAGS)
 
 .PHONY : examples
 examples : $(examples)
 
+.PHONY : install
+install :
+	$(DUNE) build @install $(FLAGS)
+	$(DUNE) install $(FLAGS)
+
 override.opam : dune-project
-	dune build override.opam
+	$(DUNE) build override.opam $(FLAGS)
 
 define foreach_example
 .PHONY : $(example)
 $(example) :
-	$(DUNE) build $(examples_dir)/$(example)/$(example).exe
+	$(DUNE) build $(examples_dir)/$(example)/$(example).exe $(FLAGS)
 	$(DUNE_PREFIX)/$(examples_dir)/$(example)/$(example).exe
 endef
 $(foreach example,$(examples),$(eval $(foreach_example)))

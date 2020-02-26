@@ -1,12 +1,3 @@
-module OCaml_version = Migrate_parsetree.OCaml_408
-
-module From = Migrate_parsetree.Convert (OCaml_version)
-    (Migrate_parsetree.OCaml_current)
-
-module Ast_mapper = OCaml_version.Ast.Ast_mapper
-module Ast_helper = OCaml_version.Ast.Ast_helper
-module Parsetree = OCaml_version.Ast.Parsetree
-
 let override_name = "[%%override]"
 
 let recursive_name = "[%%recursive]"
@@ -80,11 +71,10 @@ let lazy_env = lazy (
      modules. On the other hand, setting recursive_types more often
      than necessary does not seem harmful. *)
   Clflags.recursive_types := true;
-#if OCAML_VERSION >= (4, 09, 0)
-  Compmisc.init_path ();
-#else
-  Compmisc.init_path false;
-#endif
+  [%meta if Sys.ocaml_version >= "4.09.0" then
+    [%e Compmisc.init_path ()]
+  else
+    [%e Compmisc.init_path false]];
   Compmisc.initial_env ()
 )
 
@@ -311,7 +301,7 @@ end
 
 module Symbol_table = struct
   type 'a group = {
-      rec_flag : OCaml_version.Ast.Asttypes.rec_flag;
+      rec_flag : Asttypes.rec_flag;
       decls : 'a list;
     }
 
@@ -1265,7 +1255,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         (Some context.rewrite_env.rewrite_system_ref)
         type_decls in
     if type_decls = [] then
-      Wrapper.empty ~loc
+      Wrapper.empty ()
     else
       Wrapper.build { loc; txt = Type (rec_flag, type_decls)}
 
@@ -1531,8 +1521,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           let rewrite_context = current_rewrite_context context.rewrite_env in
           rewrite_context.rewrite_system |> List.iter (fun (lhs, rhs) ->
             Format.fprintf Format.err_formatter "%a -> %a@."
-              Pprintast.core_type (From.copy_core_type lhs)
-              Pprintast.core_type (From.copy_core_type rhs));
+              Pprintast.core_type lhs
+              Pprintast.core_type rhs);
           []
       | Extension ((extension_name, payload), attrs), _ ->
           begin match mode_of_string extension_name.txt with
@@ -1624,7 +1614,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         include_module ~loc (structure_of_contents ~loc contents)
       else
         begin match make_recursive ~loc contents attrs with
-        | None -> Wrapper.empty ~loc
+        | None -> Wrapper.empty ()
         | Some item -> item
         end
     | Extension (({ txt = "print_rewrite_system"; _ }, _payload), _attrs) ->
@@ -1632,9 +1622,9 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         let rewrite_context = current_rewrite_context rewrite_env in
         rewrite_context.rewrite_system |> List.iter (fun (lhs, rhs) ->
           Format.fprintf Format.err_formatter "%a -> %a@."
-            Pprintast.core_type (From.copy_core_type lhs)
-            Pprintast.core_type (From.copy_core_type rhs));
-        Wrapper.empty ~loc
+            Pprintast.core_type lhs
+            Pprintast.core_type rhs);
+        Wrapper.empty ()
     | Extension ((extension_name, payload), attrs) ->
         begin match mode_of_string extension_name.txt with
         | exception (Invalid_argument _) -> item
@@ -1690,7 +1680,7 @@ let rec make_mapper (context : mapper_context) : Ast_mapper.mapper = {
 
 let () =
   Migrate_parsetree.Driver.register ~name:"override" ~position:(-10)
-    (module OCaml_version)
+    (module Migrate_parsetree.OCaml_current)
     (fun config _ ->
       make_mapper {
         ocamldep = config.tool_name = "ocamldep"; rewrite_env = None;

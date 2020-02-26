@@ -1,4 +1,4 @@
-(executable
+(test
   (name tests)
   (flags -dsource)
   (preprocess (staged_pps override))

@@ -1,13 +1,3 @@
-module OCaml_version = Migrate_parsetree.OCaml_408
-
-module Ast_helper = OCaml_version.Ast.Ast_helper
-module Ast_mapper = OCaml_version.Ast.Ast_mapper
-module Asttypes = OCaml_version.Ast.Asttypes
-module Parsetree = OCaml_version.Ast.Parsetree
-
-module From = Migrate_parsetree.Convert
-    (OCaml_version) (Migrate_parsetree.OCaml_current)
-
 module type Ast_types = sig
   type item
 
@@ -64,7 +54,7 @@ module type S = sig
 
   include module type of Ast_definitions (Types)
 
-  val empty : loc:Location.t -> item
+  val empty : unit -> item
 
   val destruct : item -> wrapped_item
 
@@ -118,14 +108,14 @@ let rec module_expr_of_longident ?(attrs = [])
       Ast_helper.Mod.apply ~loc ~attrs
         (module_expr_of_longident { loc; txt = e })
         (module_expr_of_longident { loc; txt = x })
-  | _ -> Ast_helper.Mod.ident ~loc ~attrs lid 
+  | _ -> Ast_helper.Mod.ident ~loc ~attrs lid
 
 module Structure : S with module Types = Structure_types = struct
   module Types = Structure_types
 
   include Ast_definitions (Types)
 
-  let empty ~loc : item = [%stri include struct end]
+  let empty () : item = [%stri include struct end]
 
   let destruct (item : item) : wrapped_item =
     let txt =
@@ -157,8 +147,7 @@ module Structure : S with module Types = Structure_types = struct
   let map_item (mapper : Ast_mapper.mapper) submapper item =
     mapper.structure_item submapper item
 
-  let format formatter contents =
-    Pprintast.structure formatter (From.copy_structure contents)
+  let format = Pprintast.structure
 
   let destruct_payload ~loc (payload : Parsetree.payload) =
     let structure_expected preceding_symbol =
@@ -225,7 +214,7 @@ module Signature : S with module Types = Signature_types = struct
 
   include Ast_definitions (Types)
 
-  let empty ~loc : item = [%sigi: include sig end]
+  let empty () : item = [%sigi: include sig end]
 
   let destruct (item : item) : item_desc Location.loc =
     let txt =
@@ -258,7 +247,7 @@ module Signature : S with module Types = Signature_types = struct
     mapper.signature_item submapper item
 
   let format formatter contents =
-    Pprintast.signature formatter (From.copy_signature contents)
+    Pprintast.signature formatter contents
 
   let destruct_payload ~loc (payload : Parsetree.payload) =
     match payload with

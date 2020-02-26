@@ -20,7 +20,6 @@ and change module interfaces.
 ")
  (depends
   (dune (>= 1.10.0))
-  (ppxlib (>= 0.9.0))
   (stdcompat (>= 9))
-  (ppx_deriving (>= 4.4))
-  (cppo (>= 1.6.4))))
+  (metapp (>= 0.1.0))
+  (metaquot (> 0.1.0))))

@@ -1,15 +1,16 @@
+[%%metapackage "metapp"]
+
 let convert_attribute (attribute : Parsetree.attribute)
     : Compat_types.attribute =
-#if OCAML_VERSION >= (4, 08, 0)
-  { attr_name = attribute.attr_name;
-    attr_payload = attribute.attr_payload;
-    attr_loc = attribute.attr_loc }
-#else
-  let (attr_name, attr_payload) = attribute in
-  { attr_name; attr_payload; attr_loc = Location.none }
-#endif
+  [%meta if Sys.ocaml_version >= "4.08.0" then [%e
+    { attr_name = attribute.attr_name;
+      attr_payload = attribute.attr_payload;
+      attr_loc = attribute.attr_loc }]
+  else [%e
+    let (attr_name, attr_payload) = attribute in
+    { attr_name; attr_payload; attr_loc = Location.none }]]
 
-#if OCAML_VERSION >= (4, 08, 0)
+[%%meta if Sys.ocaml_version >= "4.08.0" then Metapp.Stri.of_list [%str
 let convert_visibility (visibility : Types.visibility)
     : Compat_types.visibility =
   match visibility with
@@ -40,8 +41,8 @@ let convert_signature_item (item : Types.signature_item)
   | Sig_class (ident, decl, rec_status, visibility) ->
       Sig_class (ident, decl, rec_status, convert_visibility visibility)
   | Sig_class_type (ident, decl, rec_status, visibility) ->
-      Sig_class_type (ident, decl, rec_status, convert_visibility visibility)
-#else
+      Sig_class_type (ident, decl, rec_status, convert_visibility visibility)]
+else Metapp.Stri.of_list [%str
 let convert_signature_item (item : Types.signature_item)
     : Compat_types.signature_item =
   match item with
@@ -58,15 +59,12 @@ let convert_signature_item (item : Types.signature_item)
   | Sig_class (ident, decl, rec_status) ->
       Sig_class (ident, decl, rec_status, Exported)
   | Sig_class_type (ident, decl, rec_status) ->
-      Sig_class_type (ident, decl, rec_status, Exported)
-#endif
+      Sig_class_type (ident, decl, rec_status, Exported)]]
 
 let alias_of_module_type (mt : Types.module_type) =
   match mt with
-#if OCAML_VERSION >= (4, 08, 0)
-  | Mty_alias p
-#else
-  | Mty_alias (_, p)
-#endif
-      -> Some p
+  | [%meta if Sys.ocaml_version >= "4.08.0" then
+      [%p? Mty_alias p]
+  else
+      [%p? Mty_alias (_, p)]] -> Some p
   | _ -> None

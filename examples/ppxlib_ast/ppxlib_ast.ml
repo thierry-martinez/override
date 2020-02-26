@@ -12,17 +12,16 @@ recursive block" *)
 
   (* "- flattening all the modules"
      All the modules are imported with module%import. *)
-#if OCAML_VERSION >= (4, 07, 0)
-  module%import Stdlib = struct
+  [%%meta if Sys.ocaml_version >= "4.07.0" then [%stri
+    module%import Stdlib = struct
+      module%import Lexing = struct
+        type position = _ [@@rewrite]
+      end
+    end]
+  else [%stri
     module%import Lexing = struct
       type position = _ [@@rewrite]
-    end
-  end
-#else
-  module%import Lexing = struct
-    type position = _ [@@rewrite]
-  end
-#endif
+    end]]
 
   module%import Location = struct
     (* "- renaming a few types:
@@ -62,14 +61,8 @@ recursive block" *)
   [%%print_rewrite_system]]
        [@@deriving eq]
 
-let structure_of_string s =
-  let lexbuf = Lexing.from_string s in
-  Parser.implementation Lexer.token lexbuf
-
 let test () =
-  assert (equal_structure
-       (structure_of_string "(1, 2)") (structure_of_string "(1, 2)"));
-  assert (not (equal_structure
-       (structure_of_string {|(1, "a")|}) (structure_of_string {|(1, "b")|})))
+  assert (equal_structure [%str (1, 2)] [%str (1, 2)]);
+  assert (not (equal_structure [%str (1, "a")] [%str (1, "b")]))
 
 let () = test ()
