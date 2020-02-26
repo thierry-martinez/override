@@ -1,4 +1,4 @@
-# OCaml PPX extension for overriding modules
+# `override`: OCaml PPX extension for overriding modules
 
 This library extends OCaml syntax for overriding modules defined in
 other compiled interface files.  This library generalizes

@@ -6,10 +6,10 @@
 (license BSD)
 (maintainers "Thierry Martinez <thierry.martinez@inria.fr>")
 (authors "Thierry Martinez <thierry.martinez@inria.fr>")
-(source (uri "git+https://gitlab.inria.fr/tmartine/override"))
-(homepage "https://gitlab.inria.fr/tmartine/override")
-(bug_reports "https://gitlab.inria.fr/tmartine/override")
-(documentation "https://gitlab.inria.fr/tmartine/override")
+(source (uri "git+https://github.com/thierry-martinez/override"))
+(homepage "https://github.com/thierry-martinez/override")
+(bug_reports "https://github.com/thierry-martinez/override")
+(documentation "https://github.com/thierry-martinez/override")
 
 (package
  (name override)
