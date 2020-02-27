@@ -23,4 +23,5 @@ and change module interfaces.
   (dune (>= 1.10.0))
   (stdcompat (>= 9))
   (metapp (>= 0.1.0))
-  (metaquot (>= 0.1.0))))
+  (metaquot (>= 0.1.0))
+  (refl (>= 0.1.0))))
