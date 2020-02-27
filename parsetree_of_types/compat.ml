@@ -63,7 +63,7 @@ let convert_signature_item (item : Types.signature_item)
 
 let alias_of_module_type (mt : Types.module_type) =
   match mt with
-  | [%meta if Sys.ocaml_version >= "4.08.0" then
+  | [%meta if Sys.ocaml_version >= "4.08.0" || Sys.ocaml_version < "4.04.0" then
       [%p? Mty_alias p]
   else
       [%p? Mty_alias (_, p)]] -> Some p

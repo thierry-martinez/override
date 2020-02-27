@@ -22,13 +22,14 @@ let equal_payload equal_core_type
 
 let equal_attributes equal_core_type l0 l1 =
   equal_list (fun (a0 : Parsetree.attribute) (a1 : Parsetree.attribute) ->
-    a0.attr_name = a1.attr_name &&
-    equal_payload equal_core_type a0.attr_payload a1.attr_payload) l0 l1
+    Metapp.Attr.name a0 = Metapp.Attr.name a1 &&
+    equal_payload equal_core_type (Metapp.Attr.payload a0)
+      (Metapp.Attr.payload a1)) l0 l1
 
-let equal_object_field equal_core_type
-    (f0 : Parsetree.object_field) (f1 : Parsetree.object_field) =
-  equal_attributes equal_core_type f0.pof_attributes f1.pof_attributes &&
-  match f0.pof_desc, f1.pof_desc with
+let equal_object_field equal_core_type (f0 : Metapp.Of.t) (f1 : Metapp.Of.t) =
+  equal_attributes equal_core_type (Metapp.Of.to_attributes f0)
+    (Metapp.Of.to_attributes f1) &&
+  match Metapp.Of.destruct f0, Metapp.Of.destruct f1 with
   | Otag (l0, t0), Otag (l1, t1) ->
       l0.txt = l1.txt  &&
       equal_core_type t0 t1
@@ -37,8 +38,9 @@ let equal_object_field equal_core_type
 
 let equal_row_field equal_core_type
     (f0 : Parsetree.row_field) (f1 : Parsetree.row_field) =
-  equal_attributes equal_core_type f0.prf_attributes f1.prf_attributes &&
-  match f0.prf_desc, f1.prf_desc with
+  equal_attributes equal_core_type (Metapp.Rf.to_attributes f0)
+    (Metapp.Rf.to_attributes f1) &&
+  match Metapp.Rf.destruct f0, Metapp.Rf.destruct f1 with
   | Rtag (l0, b0, t0), Rtag (l1, b1, t1) ->
       l0.txt = l1.txt && b0 = b1 &&
       equal_list equal_core_type t0 t1
@@ -66,7 +68,9 @@ let equiv_core_type equiv_rec (t0 : Parsetree.core_type)
   | Ptyp_variant (r0, c0, l0), Ptyp_variant (r1, c1, l1) ->
       equal_list (equal_row_field equiv_rec) r0 r1 && c0 = c1 && l0 = l1
   | Ptyp_poly (x0, t0), Ptyp_poly (x1, t1) ->
-      equal_list (equal_loc ( = )) x0 x1 && equiv_rec t0 t1
+      equal_list
+        (fun x0 x1 -> Metapp.Typ.poly_name x0 = Metapp.Typ.poly_name x1)
+        x0 x1 && equiv_rec t0 t1
   | Ptyp_package (p0, l0), Ptyp_package (p1, l1) ->
       p0.txt = p1.txt &&
       equal_list (equal_pair (equal_loc ( = )) equiv_rec) l0 l1

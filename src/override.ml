@@ -425,8 +425,8 @@ module Zipper = struct
     List.rev_append zipper.previous zipper.next
 end
 
-let attr_name_is name ({ attr_name = { txt; _}; _ } : Parsetree.attribute) =
-  txt = name
+let attr_name_is name (attr : Parsetree.attribute) =
+  (Metapp.Attr.name attr).txt = name
 
 let has_attr name attributes =
   attributes |> List.exists (attr_name_is name)
@@ -435,7 +435,7 @@ let find_attr_type ~loc name attributes =
   match Zipper.find (attr_name_is name) attributes with
   | None -> None
   | Some zipper ->
-      match zipper.current.attr_payload with
+      match Metapp.Attr.payload zipper.current with
       | PTyp ty -> Some (zipper, ty)
       | _ -> Location.raise_errorf ~loc "Type expected"
 
@@ -457,7 +457,7 @@ let import_type_declaration ~loc rewrite_context ?modident name
           if has_attr attr_rewrite attrs && not (has_attr attr_from attrs) then
             let imported_type = Ast_helper.Typ.constr
                 (ident_of_name from_name) params in
-            Ast_helper.Attr.mk
+            Metapp.Attr.mk
               (Parsetree_of_types.mkloc attr_from) (PTyp imported_type) :: attrs
           else
             attrs in
@@ -881,7 +881,12 @@ let with_constraints (table : Symbol_table.t)
           let manifest =
             Ast_helper.Typ.constr qual_name (params |> List.map fst) in
           let ty = Ast_helper.Type.mk ~params ~manifest type_name in
-          Pwith_typesubst (ident_of_name type_name, ty) :: accu
+          let typesubst : Parsetree.with_constraint =
+            [%meta if Sys.ocaml_version >= "4.06.0" then
+              [%e Pwith_typesubst (ident_of_name type_name, ty)]
+            else
+              [%e Pwith_typesubst ty]] in
+          typesubst :: accu
     end symbols.types [] in
   let module_constraints =
     String_set.fold begin
@@ -891,7 +896,12 @@ let with_constraints (table : Symbol_table.t)
         | Some typed_decl ->
             let mod_name : string Location.loc = { loc; txt = mod_name } in
             let qual_name = qualified_ident_of_name modident.txt mod_name in
-            Pwith_modsubst (ident_of_name mod_name, qual_name) :: accu
+            let mod_name =
+              [%meta if Sys.ocaml_version >= "4.06.0" then
+                [%e ident_of_name mod_name]
+              else
+                [%e mod_name]] in
+            Pwith_modsubst (mod_name, qual_name) :: accu
     end symbols.modules type_constraints in
   module_constraints
 
@@ -899,7 +909,8 @@ let apply_rewrite_attr ~loc ?modident rewrite_system_ref type_decls =
   type_decls |> List.filter_map begin
     fun (decl : Parsetree.type_declaration) ->
       match Zipper.find (attr_name_is attr_rewrite) decl.ptype_attributes with
-      | Some ({ current = { attr_payload = PStr []; _ }; _ } as zipper) ->
+      | Some ({ current; _ } as zipper)
+        when Metapp.Attr.payload current = PStr [] ->
           begin match rewrite_system_ref with
           | None ->
               Location.raise_errorf ~loc:decl.ptype_loc
@@ -1088,11 +1099,11 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
               | None -> []
               | Some decl -> decl.ptype_attributes in
             Ast_helper.Type.mk name ~params ~attrs:(([
-              Ast_helper.Attr.mk
+              Metapp.Attr.mk
                 (Parsetree_of_types.mkloc attr_from) (PTyp from_type);
-              Ast_helper.Attr.mk
+              Metapp.Attr.mk
                 (Parsetree_of_types.mkloc attr_rewrite) (PStr []);
-              Ast_helper.Attr.mk
+              Metapp.Attr.mk
                 (Parsetree_of_types.mkloc attr_remove) (PStr [])]) @ attrs)
           end
         end
@@ -1273,7 +1284,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
               attrs |> List.fold_left begin
                 fun (rev_override_attrs, rev_other_attrs)
                     (attr : Parsetree.attribute) ->
-                  let attr_name = attr.attr_name.txt in
+                  let attr_name = (Metapp.Attr.name attr).txt in
                   if attr_name = attr_from || attr_name = attr_rewrite
                 || attr_name = attr_remove then
                     (attr :: rev_override_attrs, rev_other_attrs)

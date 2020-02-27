@@ -67,7 +67,7 @@ let rec core_type_of_type_expr (context : type_conversion_context)
             let fields = row_fields |> List.map (convert_row_field context) in
             Ast_helper.Typ.variant fields Closed None
         | Tpoly (ty, tyl) ->
-            Ast_helper.Typ.poly
+            Metapp.Typ.poly
               (List.map
                  (fun ty -> mkloc (Option.get (univar_of_type_expr ty))) tyl)
               (core_type_of_type_expr context ty)
@@ -95,12 +95,12 @@ let rec core_type_of_type_expr (context : type_conversion_context)
         result
 
 and list_of_fields context accu (type_expr : Types.type_expr)
-    : Parsetree.object_field list * Asttypes.closed_flag =
+    : Metapp.Of.t list * Asttypes.closed_flag =
   match type_expr.desc with
   | Tnil -> List.rev accu, Closed
   | Tfield (name, _kind, ty, tail) ->
-      let field = Ast_helper.Of.mk
-        (Otag (mkloc name, core_type_of_type_expr context ty)) in
+      let field = Metapp.Of.tag
+        (mkloc name) (core_type_of_type_expr context ty) in
       list_of_fields context
         (field :: accu)
         tail
@@ -111,13 +111,12 @@ and list_of_fields context accu (type_expr : Types.type_expr)
 and convert_row_field context (label, (row_field : Types.row_field))
     : Parsetree.row_field =
   let label = mkloc label in
-  Ast_helper.Rf.mk
   begin match row_field with
-  | Rpresent None -> Rtag (label, true, [])
+  | Rpresent None -> Metapp.Rf.tag label true []
   | Rpresent (Some ttyp) ->
       let args = [core_type_of_type_expr context ttyp] in
-      Rtag (label, false, args)
-  | _ -> Rtag (label, true, [])
+      Metapp.Rf.tag label false args
+  | _ -> Metapp.Rf.tag label true []
   end
 
 let core_type_of_type_expr type_expr =
