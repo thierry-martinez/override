@@ -266,8 +266,12 @@ let rec signature (tsig : Types.signature)
 
 and module_declaration (ident, (md : Types.module_declaration)) =
   let loc = md.md_loc in
-  Ast_helper.Md.mk ~loc
-    ~attrs:md.md_attributes { loc; txt = Ident.name ident }
+  let txt =
+    [%meta if Sys.ocaml_version >= "4.10.0" then
+      [%e Some (Ident.name ident)]
+    else
+      [%e Ident.name ident]] in
+  Ast_helper.Md.mk ~loc ~attrs:md.md_attributes { loc; txt }
     (module_type md.md_type)
 
 and modtype_declaration ident (mtd : Types.modtype_declaration) =
@@ -283,10 +287,21 @@ and module_type (mt : Types.module_type) =
         (mkloc (Untypeast.lident_of_path p))
   | Mty_signature s ->
       Ast_helper.Mty.signature (signature s)
-  | Mty_functor (x, t, s) ->
-      let t = t |> Option.map module_type in
+  | [%meta if Sys.ocaml_version >= "4.10.0" then
+      [%p? Mty_functor (f, s)]
+    else
+      [%p? Mty_functor (x, t, s)]] ->
       let s = module_type s in
-      Ast_helper.Mty.functor_ (mkloc (Ident.name x)) t s
+      [%meta if Sys.ocaml_version >= "4.10.0" then [%e
+        let f : Parsetree.functor_parameter =
+          match f with
+          | Unit -> Unit
+          | Named (x, ty) ->
+              Named (mkloc (Option.map Ident.name x), module_type ty) in
+        Ast_helper.Mty.functor_ f s]
+      else [%e
+        let t = t |> Option.map module_type in
+        Ast_helper.Mty.functor_ (mkloc (Ident.name x)) t s]]
   | Mty_alias _ ->
       match Compat.alias_of_module_type mt with
       | Some p ->

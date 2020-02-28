@@ -6,6 +6,30 @@ module type Ast_types = sig
   type module_expr
 end
 
+[%%meta if Sys.ocaml_version >= "4.10.0" then [%stri
+  type functor_parameter = Parsetree.functor_parameter =
+    | Unit
+    | Named of string option Location.loc * Parsetree.module_type]
+else [%stri
+  type functor_parameter =
+    | Unit
+    | Named of string option Location.loc * Parsetree.module_type]]
+
+let destruct_module_type_functor (modtype : Parsetree.module_type_desc)
+    : (functor_parameter * Parsetree.module_type) option =
+  match modtype with
+  | [%meta if Sys.ocaml_version >= "4.10.0" then
+      [%p? Pmty_functor (f, s)]
+    else
+      [%p? Pmty_functor (x, t, s)]] ->
+      [%meta if Sys.ocaml_version >= "4.10.0" then
+        [%e Some (f, s)]
+      else
+        [%e match t with
+        | None -> Some (Unit, s)
+        | Some t -> Some (Named (Metapp.map_loc Option.some x, t), s)]]
+  | _ -> None
+
 module Ast_definitions (Types : Ast_types) = struct
   include Types
 
@@ -32,7 +56,7 @@ module Ast_definitions (Types : Ast_types) = struct
     { loc; txt = { attrs; contents }}
 
   type module_binding_desc = {
-      name : string Location.loc;
+      name : string option Location.loc;
       expr : module_expr;
     }
 
@@ -41,8 +65,7 @@ module Ast_definitions (Types : Ast_types) = struct
   type module_expr_desc =
     | Ident of Longident.t Location.loc
     | Contents of contents
-    | Functor of
-        string Location.loc * Parsetree.module_type option * module_expr
+    | Functor of functor_parameter * module_expr
     | Constraint of module_expr Lazy.t * Parsetree.module_type
     | Other of module_expr
 
@@ -61,8 +84,8 @@ module type S = sig
   val build : wrapped_item -> item
 
   val choose :
-      (unit -> Parsetree.structure_item) -> (unit -> Parsetree.signature_item) ->
-        item
+      (unit -> Parsetree.structure_item) ->
+        (unit -> Parsetree.signature_item) -> item
 
   val map : Ast_mapper.mapper -> Ast_mapper.mapper -> contents -> contents
 
@@ -110,6 +133,28 @@ let rec module_expr_of_longident ?(attrs = [])
         (module_expr_of_longident { loc; txt = x })
   | _ -> Ast_helper.Mod.ident ~loc ~attrs lid
 
+let opt_of_module_name name =
+  [%meta if Sys.ocaml_version >= "4.10.0" then
+    [%e name]
+  else
+    [%e Some name]]
+
+let module_name_of_string name =
+  [%meta if Sys.ocaml_version >= "4.10.0" then
+    [%e Some name]
+  else
+    [%e name]]
+
+let module_name_of_opt name =
+  [%meta if Sys.ocaml_version >= "4.10.0" then
+    [%e name]
+  else
+    [%e match name with
+    | None ->
+        Location.raise_errorf ~loc:!Ast_helper.default_loc
+          "Anonymous module unsupported in OCaml <4.10.0"
+    | Some name -> name]]
+
 module Structure : S with module Types = Structure_types = struct
   module Types = Structure_types
 
@@ -141,7 +186,8 @@ module Structure : S with module Types = Structure_types = struct
   let choose structure _signature =
     structure ()
 
-  let map (mapper : Ast_mapper.mapper) submapper (contents : contents) : contents =
+  let map (mapper : Ast_mapper.mapper) submapper (contents : contents)
+      : contents =
     mapper.structure submapper contents
 
   let map_item (mapper : Ast_mapper.mapper) submapper item =
@@ -163,19 +209,28 @@ module Structure : S with module Types = Structure_types = struct
       : wrapped_module_binding =
     { loc = binding.pmb_loc; txt = {
       attrs = binding.pmb_attributes; contents = {
-      name = binding.pmb_name;
+      name = Metapp.map_loc opt_of_module_name binding.pmb_name;
       expr = binding.pmb_expr; }}}
 
   let build_module_binding (binding : wrapped_module_binding) =
     match binding with { loc; txt = { attrs; contents = { name; expr }}} ->
-      Ast_helper.Mb.mk ~loc ~attrs name expr
+      Ast_helper.Mb.mk ~loc ~attrs (Metapp.map_loc module_name_of_opt name) expr
 
   let destruct_module_expr (expr : module_expr) : wrapped_module_expr =
     let contents =
       match expr.pmod_desc with
       | Pmod_ident lid -> Ident lid
       | Pmod_structure s -> Contents s
-      | Pmod_functor (x, t, s) -> Functor (x, t, s)
+      | [%meta if Sys.ocaml_version >= "4.10.0" then
+          [%p? Pmod_functor (f, s)]
+        else
+          [%p? Pmod_functor (x, t, s)]] ->
+          [%meta if Sys.ocaml_version >= "4.10.0" then
+            [%e Functor (f, s)]
+          else
+            [%e match t with
+            | None -> Functor (Unit, s)
+            | Some t -> Functor (Named (Metapp.map_loc Option.some x, t), s)]]
       | Pmod_constraint (m, t) -> Constraint (Lazy.from_val m, t)
       | Pmod_apply (e, x) ->
           begin
@@ -192,7 +247,17 @@ module Structure : S with module Types = Structure_types = struct
       match contents with
       | Ident lid -> module_expr_of_longident lid
       | Contents s -> Ast_helper.Mod.structure ~loc ~attrs s
-      | Functor (x, t, s) -> Ast_helper.Mod.functor_ ~loc ~attrs x t s
+      | Functor (f, s) ->
+          [%meta if Sys.ocaml_version >= "4.10.0" then
+            [%e Ast_helper.Mod.functor_ ~loc ~attrs f s]
+          else [%e
+            begin match f with
+            | Unit ->
+                Ast_helper.Mod.functor_ ~loc ~attrs (Metapp.mkloc "") None s
+            | Named (x, t) ->
+                Ast_helper.Mod.functor_ ~loc ~attrs
+                  (Metapp.map_loc Option.get x) (Some t) s
+            end]]
       | Constraint (m, t) ->
           Ast_helper.Mod.constraint_ ~loc ~attrs (Lazy.force m) t
       | Other expr -> Ast_helper.Mod.mk ~loc ~attrs expr.pmod_desc
@@ -266,29 +331,41 @@ module Signature : S with module Types = Signature_types = struct
       : wrapped_module_binding =
     { loc = declaration.pmd_loc; txt = {
       attrs = declaration.pmd_attributes; contents = {
-      name = declaration.pmd_name;
+      name = Metapp.map_loc opt_of_module_name declaration.pmd_name;
       expr = declaration.pmd_type; }}}
 
   let build_module_binding (binding : wrapped_module_binding) =
     match binding with { loc; txt = { attrs; contents = { name; expr }}} ->
-      Ast_helper.Md.mk ~loc ~attrs name expr
+      Ast_helper.Md.mk ~loc ~attrs (Metapp.map_loc module_name_of_opt name) expr
 
   let destruct_module_expr (expr : module_expr) : wrapped_module_expr =
     let contents =
       match expr.pmty_desc with
       | Pmty_ident lid -> Ident lid
       | Pmty_signature s -> Contents s
-      | Pmty_functor (x, t, s) -> Functor (x, t, s)
-      | _ -> Other expr in
+      | _ ->
+          match destruct_module_type_functor expr.pmty_desc with
+          | Some (f, s) -> Functor (f, s)
+          | _ -> Other expr in
     { loc = expr.pmty_loc; txt = {
       attrs = expr.pmty_attributes; contents }}
 
   let build_module_expr (expr : wrapped_module_expr) =
     match expr with { loc; txt = { attrs; contents }} ->
       match contents with
-      | Ident lid -> Ast_helper.Mty.ident ~loc ~attrs lid 
+      | Ident lid -> Ast_helper.Mty.ident ~loc ~attrs lid
       | Contents s -> Ast_helper.Mty.signature ~loc ~attrs s
-      | Functor (x, t, s) -> Ast_helper.Mty.functor_ ~loc ~attrs x t s
+      | Functor (f, s) ->
+          [%meta if Sys.ocaml_version >= "4.10.0" then
+            [%e Ast_helper.Mty.functor_ ~loc ~attrs f s]
+          else [%e
+            begin match f with
+            | Unit ->
+                Ast_helper.Mty.functor_ ~loc ~attrs (Metapp.mkloc "") None s
+            | Named (x, t) ->
+                Ast_helper.Mty.functor_ ~loc ~attrs
+                  (Metapp.map_loc Option.get x) (Some t) s
+            end]]
       | Constraint (_m, t) -> t
       | Other expr -> Ast_helper.Mty.mk ~loc ~attrs expr.pmty_desc
 

@@ -78,7 +78,7 @@ let lazy_env = lazy (
   Compmisc.initial_env ()
 )
 
-let try_find_module ~loc:_ env lid =
+let try_find_module ~loc:_loc env lid =
   (* Note: we are careful to call `Env.lookup_module` and not
      `Typetexp.lookup_module`, because we want to reason precisely
      about the possible failures: we want to handle the case where
@@ -95,7 +95,11 @@ let try_find_module ~loc:_ env lid =
      but better be safe and bundle them in the same try..with.
   *)
   try
-    let path = Env.lookup_module ~load:true lid env in
+    let path =
+      [%meta if Sys.ocaml_version >= "4.10.0" then
+        [%e fst (Env.lookup_module ~loc:_loc lid env)]
+      else
+        [%e Env.lookup_module ~load:true lid env]] in
     let module_decl = Env.find_module path env in
     Some module_decl.md_type
   with Not_found -> None
@@ -342,7 +346,10 @@ module Symbol_table = struct
     { table with types = String_map.add name type_decl table.types }
 
   let add_module name mod_decl table =
-    { table with modules = String_map.add name mod_decl table.modules }
+    match Ast_wrapper.opt_of_module_name name with
+    | None -> table
+    | Some name ->
+        { table with modules = String_map.add name mod_decl table.modules }
 
   let add_module_type name mod_decl table =
     { table with
@@ -560,14 +567,6 @@ let get_signature (modtype : Parsetree.module_type)
   | Pmty_signature signature -> Some signature
   | _ -> None
 
-let get_functor (modtype : Parsetree.module_type)
-    : (string Location.loc * Parsetree.module_type option
-         * Parsetree.module_type)
-    option =
-  match modtype.pmty_desc with
-  | Pmty_functor (x, arg_type, result_type) -> Some (x, arg_type, result_type)
-  | _ -> None
-
 let rec get_module_type ~loc env (ident : Longident.t)
     : Longident.t * Parsetree.module_type option =
   let (_, modtype_opt) as result =
@@ -600,7 +599,8 @@ let rec get_module_type ~loc env (ident : Longident.t)
               tsig |> find_map_opt begin
                 fun (item : Parsetree.signature_item) ->
                   match item.psig_desc with
-                  | Psig_module decl when decl.pmd_name.txt = name ->
+                  | Psig_module decl when decl.pmd_name.txt =
+                      Ast_wrapper.module_name_of_string name ->
                       Some decl.pmd_type
                   | _ -> None
               end
@@ -612,7 +612,8 @@ let rec get_module_type ~loc env (ident : Longident.t)
         let arg, _modtype_opt = get_module_type ~loc env ident in
         let modtype_opt =
           Option.bind modtype_opt begin fun modtype ->
-            get_functor modtype |> Option.map begin fun (_x, _arg, result) ->
+            Ast_wrapper.destruct_module_type_functor modtype.pmty_desc |>
+            Option.map begin fun (_f, result) ->
               result
             end
           end in
@@ -636,9 +637,12 @@ let resolve_alias ~loc (env : Parsetree.module_type env) =
       snd (get_module_type ~loc env target.txt)
 
 let extract_functor ~loc env lid =
-  match Option.bind (resolve_alias ~loc env) get_functor with
-  | Some (y, t, signature) ->
-      y, t, signature
+  match
+    Option.bind (resolve_alias ~loc env)
+      (fun ty -> Ast_wrapper.destruct_module_type_functor ty.pmty_desc)
+  with
+  | Some (f, signature) ->
+      f, signature
   | None ->
       Location.raise_errorf ~loc "%s: %a is not a functor"
         override_name Printtyp.longident lid
@@ -660,12 +664,17 @@ let apply_functor ~loc modenv name =
     match modenv.modtype with
     | None -> None, None
     | Some env ->
-        let y, _t, signature =
+        let f, signature =
           extract_functor ~loc env modenv.ident.txt in
-        Some y, Some { env with signature } in
+        Some f, Some { env with signature } in
   let modenv = {
     ident = modenv.ident |> map_loc
-      (fun ident : Longident.t -> Lapply (ident, Lident name));
+      (fun ident : Longident.t ->
+        match name with
+        | None ->
+            Location.raise_errorf ~loc
+              "%s: cannot expand anonymous module" override_name
+        | Some name -> Lapply (ident, Lident name));
     modtype } in
   y, modenv
 
@@ -1131,6 +1140,11 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
 let symbols_only_allowed_in_signatures ~loc () =
   Location.raise_errorf ~loc "[%%symbols] only allowed in signatures"
 
+let keep_module (symbols : Symbol_set.t) (decl : Parsetree.module_declaration) =
+  match Ast_wrapper.opt_of_module_name decl.pmd_name.txt with
+  | Some name -> not (String_set.mem name symbols.modules)
+  | _ -> true
+
 let filter_signature (sig_ : Parsetree.signature) (symbols : Symbol_set.t)
     : Parsetree.signature =
   sig_ |> List.filter_map begin fun (item : Parsetree.signature_item) ->
@@ -1145,17 +1159,12 @@ let filter_signature (sig_ : Parsetree.signature) (symbols : Symbol_set.t)
         | decls -> Some { item with psig_desc = Psig_type (rec_flag, decls) }
         end
     | Psig_module decl ->
-        if String_set.mem decl.pmd_name.txt symbols.modules then
+        if keep_module symbols decl then
           None
         else
           Some item
     | Psig_recmodule decls ->
-        begin match
-          decls |> List.filter begin
-            fun (decl : Parsetree.module_declaration) ->
-              not (String_set.mem decl.pmd_name.txt symbols.modules)
-          end
-        with
+        begin match List.filter (keep_module symbols) decls with
         | [] -> None
         | decls -> Some { item with psig_desc = Psig_recmodule decls }
         end
@@ -1382,7 +1391,6 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                 Symbol_table.import ~target:env.scope ~source:signature.table in
               { env with signature; scope }
             end in
-          
           let contents = override_contents context signature contents in
           let module_expr = module_of_ident ~loc context.modenv.ident in
           let modident =
@@ -1436,26 +1444,32 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                         (filter_signature signature.sig_ symbols)) in
                   make_include sig_constraint :: contents in
           structure_of_contents ~loc contents
-        | Functor (x, t, e) ->
+        | Functor (f, e) ->
             let context =
               match context.mode.import with
               | Ignore -> context
               | _ ->
-                let y, modenv = apply_functor ~loc context.modenv x.txt in
+                let y, modenv =
+                  match f with
+                  | Unit ->
+                      apply_functor ~loc context.modenv None
+                  | Named (x, _) ->
+                      apply_functor ~loc context.modenv x.txt in
                 let rewrite_env =
-                  match y with
-                  | None -> context.rewrite_env
-                  | Some y ->
+                  match f, y with
+                  | Named ({ txt = Some x; _ }, _),
+                    Some (Named ({ txt = Some y }, _)) ->
                       { context.rewrite_env with context =
                         { context.rewrite_env.context with subst_mod =
-                          Longident_map.add (Longident.Lident y.txt)
-                            (Longident.Lident x.txt)
-                            context.rewrite_env.context.subst_mod }} in
+                          Longident_map.add (Longident.Lident y)
+                            (Longident.Lident x)
+                            context.rewrite_env.context.subst_mod }}
+                  | _ -> context.rewrite_env in
                 { context with modenv; rewrite_env } in
             let e' = override_module_expr context e in
             if context.mode.submodule then
               Wrapper.build_module_expr (Wrapper.mkattr ~loc (
-                Wrapper.Functor (x, t, e')))
+                Wrapper.Functor (f, e')))
             else
               e'
         | Constraint (e, t) ->
@@ -1564,7 +1578,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           (fun context' ->
             override_module context.rewrite_env context' desc)
       | Modtype decl ->
-          decl.pmtd_name,
+          Metapp.map_loc (fun x -> Ast_wrapper.opt_of_module_name
+            (Ast_wrapper.module_name_of_string x)) decl.pmtd_name,
           Symbol_set.add_module_type,
           (fun name (signature : Symbol_table.signature) ->
             match (find_module_type name signature.table.module_types
@@ -1574,8 +1589,18 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             | Some modtype -> modtype),
           (fun context' ->
             override_module_type context.rewrite_env context' decl) in
-    context.overriden_ref :=
-      add_module name.txt !(context.overriden_ref);
+    begin match name.txt with
+    | Some name ->
+        context.overriden_ref :=
+          add_module name !(context.overriden_ref);
+    | None -> ()
+    end;
+    let name_txt =
+      match name.txt with
+      | None ->
+          Location.raise_errorf ~loc:!Ast_helper.default_loc
+            "%s: cannot find anonymous module" override_name
+      | Some txt -> txt in
     let submodenv =
       match mode.import with
       | Ignore ->
@@ -1585,9 +1610,11 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             match env with
             | None -> None
             | Some env ->
-                Some { env with signature = find_module name env.signature } in
+                Some { env with
+                  signature = find_module { name with txt = name_txt }
+                    env.signature } in
           { ident = context.modenv.ident |> map_loc
-            (fun ident : Longident.t -> Ldot (ident, name.txt));
+            (fun ident : Longident.t -> Ldot (ident, name_txt));
             modtype } in
     let defined_ref =
       if mode.submodule then
@@ -1595,7 +1622,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       else
         Some context.defined_ref in
     let context' =
-      make_context ?defined_ref ~manifest:context.manifest submodenv name.txt
+      make_context ?defined_ref ~manifest:context.manifest submodenv name_txt
         mode (derive_rewrite_env context.rewrite_env)
         context.override_module_type in
     override_module context'
@@ -1643,6 +1670,12 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             match module_or_modtype_of_payload ~loc payload with
             | Module desc ->
                 let name = desc.txt.contents.name in
+                let name =
+                  match name with
+                  | { txt = Some txt; _ } -> { name with txt }
+                  | _ ->
+                      Location.raise_errorf ~loc
+                        "%s: anonymous module unsupported here" override_name in
                 let rewrite_env = force_rewrite_env context.rewrite_env in
                 let modenv =
                   let ident = ident_of_name name in
