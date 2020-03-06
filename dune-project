@@ -19,7 +19,7 @@ PPX extensions [%%override], [%%import], [%%include] and [%%rewrite] to import
 and change module interfaces.
 ")
  (depends
-  (ocaml (and (>= 4.03.0) (< 4.11.0)))
+  (ocaml (and (>= 4.03.0) (< 4.12.0)))
   (dune (>= 1.10.0))
   (stdcompat (>= 9))
   (metapp (>= 0.1.0))
