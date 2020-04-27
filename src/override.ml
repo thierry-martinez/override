@@ -1542,7 +1542,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
             contents
           else
             Option.to_list (make_recursive ~loc contents attrs)
-      | Extension (({ txt = "print_rewrite_system"; _ }, _payload), _attrs), _ ->
+      | Extension (({ txt = "print_rewrite_system"; _ }, _payload), _attrs),
+            _ ->
           let rewrite_context = current_rewrite_context context.rewrite_env in
           rewrite_context.rewrite_system |> List.iter (fun (lhs, rhs) ->
             Format.fprintf Format.err_formatter "%a -> %a@."
