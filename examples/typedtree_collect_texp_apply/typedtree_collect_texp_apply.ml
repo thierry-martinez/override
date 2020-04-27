@@ -8,12 +8,14 @@ https://discuss.ocaml.org/t/producing-and-using-typed-asts-for-all-source-files-
 > Typedtree.structure, return all expressions of type Texp_apply)?
 *)
 
+[%%metapackage metapp]
+
 module%override Env = struct
-  type t = Env.t [@mapopaque] [@@deriving refl]
+  type t = Env.t [@opaque] [@@deriving refl]
 end
 
 module%override Ident = struct
-  type t = Ident.t [@mapopaque] [@@deriving refl]
+  type t = Ident.t [@opaque] [@@deriving refl]
 end
 
 module%override Path = struct
@@ -25,7 +27,7 @@ module%override Longident = struct
 end
 
 module%override Location = struct
-  type t = Location.t [@mapopaque] [@@deriving refl]
+  type t = Location.t [@opaque] [@@deriving refl]
 
   type 'a loc = _ [@@deriving refl]
 end
@@ -39,31 +41,38 @@ module%override Parsetree = struct
 end
 
 module%override Primitive = struct
-  type description = Primitive.description [@mapopaque] [@@deriving refl]
+  type description = Primitive.description [@opaque] [@@deriving refl]
 end
+
+[%%meta if Sys.ocaml_version >= "4.10.0" then
+  [%stri module%override Type_immediacy = struct
+    [%%types] [@@deriving refl]
+  end]
+else
+  Metapp.Stri.of_list []]
 
 module%override Types = struct
   module%override Variance = struct
-    type t = Types.Variance.t [@mapopaque] [@@deriving refl]
+    type t = Types.Variance.t [@opaque] [@@deriving refl]
 
     [%%types] [@@deriving refl]
   end
 
-  type value_kind = Types.value_kind [@mapopaque] [@@deriving refl]
+  type value_kind = Types.value_kind [@opaque] [@@deriving refl]
 
-  type class_signature = Types.class_signature [@mapopaque] [@@deriving refl]
+  type class_signature = Types.class_signature [@opaque] [@@deriving refl]
 
-  type unboxed_status = Types.unboxed_status [@mapopaque] [@@deriving refl]
+  type unboxed_status = Types.unboxed_status [@opaque] [@@deriving refl]
 
   [%%types] [@@deriving refl]
 end
 
 module%override Typedtree = struct
   type class_structure =
-      Typedtree.class_structure [@mapopaque] [@@deriving refl]
+      Typedtree.class_structure [@opaque] [@@deriving refl]
 
   type class_expr_desc =
-      Typedtree.class_expr_desc [@mapopaque] [@@deriving refl]
+      Typedtree.class_expr_desc [@opaque] [@@deriving refl]
 
   [%%types] [@@deriving refl]
 end
@@ -81,7 +90,7 @@ type texp_apply =
 module Visitor = struct
   type accu = texp_apply list
 
-  module Applicative = Refl.Visit.Fold (struct type t = accu end)
+  module Applicative = Traverse.Applicative.Fold (struct type t = accu end)
 
   let hook : type a . a Refl.refl -> (a -> accu -> accu) -> a -> accu -> accu =
   fun refl super x accu ->

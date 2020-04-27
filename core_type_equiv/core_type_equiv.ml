@@ -3,7 +3,7 @@ module%override Longident = struct
 end
 
 module%override Location = struct
-  type t = Location.t [@mapopaque] [@@rewrite] [@@deriving refl]
+  type t = Location.t [@opaque] [@@rewrite] [@@deriving refl]
 
   type 'a loc = _ [@@deriving refl]
 end

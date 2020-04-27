@@ -1440,8 +1440,11 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                       with_constraints signature.table context.modenv.ident
                         rewrite_context symbols |> make_with_constraints
                     else
-                      Some (Ast_helper.Mty.signature
-                        (filter_signature signature.sig_ symbols)) in
+                      let s = filter_signature signature.sig_ symbols in
+                      let s =
+                        Ast_helper.Sig.open_
+                          (Ast_helper.Opn.mk context.modenv.ident) :: s in
+                      Some (Ast_helper.Mty.signature s) in
                   make_include sig_constraint :: contents in
           structure_of_contents ~loc contents
         | Functor (f, e) ->
