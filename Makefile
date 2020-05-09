@@ -16,8 +16,8 @@ all :
 clean :
 	$(DUNE) clean $(FLAGS)
 
-.PHONY : tests
-tests :
+.PHONY : test
+test :
 	$(DUNE) runtest $(FLAGS)
 
 .PHONY : examples
