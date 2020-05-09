@@ -1,9 +1,3 @@
-type attribute = {
-    attr_name : string Location.loc;
-    attr_payload : Parsetree.payload;
-    attr_loc : Location.t;
-  }
-
 type visibility =
   | Exported
   | Hidden

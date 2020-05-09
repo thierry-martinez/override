@@ -346,7 +346,7 @@ module Symbol_table = struct
     { table with types = String_map.add name type_decl table.types }
 
   let add_module name mod_decl table =
-    match Ast_wrapper.opt_of_module_name name with
+    match Metapp.string_option_of_module_name name with
     | None -> table
     | Some name ->
         { table with modules = String_map.add name mod_decl table.modules }
@@ -600,7 +600,7 @@ let rec get_module_type ~loc env (ident : Longident.t)
                 fun (item : Parsetree.signature_item) ->
                   match item.psig_desc with
                   | Psig_module decl when decl.pmd_name.txt =
-                      Ast_wrapper.module_name_of_string name ->
+                      Metapp.module_name_of_string_option (Some name) ->
                       Some decl.pmd_type
                   | _ -> None
               end
@@ -612,7 +612,7 @@ let rec get_module_type ~loc env (ident : Longident.t)
         let arg, _modtype_opt = get_module_type ~loc env ident in
         let modtype_opt =
           Option.bind modtype_opt begin fun modtype ->
-            Ast_wrapper.destruct_module_type_functor modtype.pmty_desc |>
+            Metapp.Mty.destruct_functor modtype |>
             Option.map begin fun (_f, result) ->
               result
             end
@@ -638,8 +638,7 @@ let resolve_alias ~loc (env : Parsetree.module_type env) =
 
 let extract_functor ~loc env lid =
   match
-    Option.bind (resolve_alias ~loc env)
-      (fun ty -> Ast_wrapper.destruct_module_type_functor ty.pmty_desc)
+    Option.bind (resolve_alias ~loc env) Metapp.Mty.destruct_functor
   with
   | Some (f, signature) ->
       f, signature
@@ -890,12 +889,7 @@ let with_constraints (table : Symbol_table.t)
           let manifest =
             Ast_helper.Typ.constr qual_name (params |> List.map fst) in
           let ty = Ast_helper.Type.mk ~params ~manifest type_name in
-          let typesubst : Parsetree.with_constraint =
-            [%meta if Sys.ocaml_version >= "4.06.0" then
-              [%e Pwith_typesubst (ident_of_name type_name, ty)]
-            else
-              [%e Pwith_typesubst ty]] in
-          typesubst :: accu
+          Metapp.With.typesubst ty :: accu
     end symbols.types [] in
   let module_constraints =
     String_set.fold begin
@@ -905,12 +899,7 @@ let with_constraints (table : Symbol_table.t)
         | Some typed_decl ->
             let mod_name : string Location.loc = { loc; txt = mod_name } in
             let qual_name = qualified_ident_of_name modident.txt mod_name in
-            let mod_name =
-              [%meta if Sys.ocaml_version >= "4.06.0" then
-                [%e ident_of_name mod_name]
-              else
-                [%e mod_name]] in
-            Pwith_modsubst (mod_name, qual_name) :: accu
+            Metapp.With.modsubst (Metapp.lid_of_str mod_name) qual_name :: accu
     end symbols.modules type_constraints in
   module_constraints
 
@@ -1141,7 +1130,7 @@ let symbols_only_allowed_in_signatures ~loc () =
   Location.raise_errorf ~loc "[%%symbols] only allowed in signatures"
 
 let keep_module (symbols : Symbol_set.t) (decl : Parsetree.module_declaration) =
-  match Ast_wrapper.opt_of_module_name decl.pmd_name.txt with
+  match Metapp.string_option_of_module_name decl.pmd_name.txt with
   | Some name -> not (String_set.mem name symbols.modules)
   | _ -> true
 
@@ -1582,8 +1571,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           (fun context' ->
             override_module context.rewrite_env context' desc)
       | Modtype decl ->
-          Metapp.map_loc (fun x -> Ast_wrapper.opt_of_module_name
-            (Ast_wrapper.module_name_of_string x)) decl.pmtd_name,
+          Metapp.map_loc Option.some decl.pmtd_name,
           Symbol_set.add_module_type,
           (fun name (signature : Symbol_table.signature) ->
             match (find_module_type name signature.table.module_types

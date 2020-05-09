@@ -1,15 +1,5 @@
 [%%metapackage "metapp"]
 
-let convert_attribute (attribute : Parsetree.attribute)
-    : Compat_types.attribute =
-  [%meta if Sys.ocaml_version >= "4.08.0" then [%e
-    { attr_name = attribute.attr_name;
-      attr_payload = attribute.attr_payload;
-      attr_loc = attribute.attr_loc }]
-  else [%e
-    let (attr_name, attr_payload) = attribute in
-    { attr_name; attr_payload; attr_loc = Location.none }]]
-
 [%%meta if Sys.ocaml_version >= "4.08.0" then Metapp.Stri.of_list [%str
 let convert_visibility (visibility : Types.visibility)
     : Compat_types.visibility =
@@ -60,11 +50,3 @@ let convert_signature_item (item : Types.signature_item)
       Sig_class (ident, decl, rec_status, Exported)
   | Sig_class_type (ident, decl, rec_status) ->
       Sig_class_type (ident, decl, rec_status, Exported)]]
-
-let alias_of_module_type (mt : Types.module_type) =
-  match mt with
-  | [%meta if Sys.ocaml_version >= "4.08.0" || Sys.ocaml_version < "4.04.0" then
-      [%p? Mty_alias p]
-  else
-      [%p? Mty_alias (_, p)]] -> Some p
-  | _ -> None
