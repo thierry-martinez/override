@@ -296,7 +296,7 @@ module Signature : S with module Types = Signature_types = struct
       match contents with
       | Ident lid -> Ast_helper.Mty.ident ~loc ~attrs lid
       | Contents s -> Ast_helper.Mty.signature ~loc ~attrs s
-      | Functor (f, s) -> Ast_helper.Mty.functor_ ~loc ~attrs f s
+      | Functor (f, s) -> Metapp.Mty.functor_ ~loc ~attrs f s
       | Constraint (_m, t) -> t
       | Other expr -> Ast_helper.Mty.mk ~loc ~attrs expr.pmty_desc
 
