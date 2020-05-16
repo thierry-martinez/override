@@ -58,9 +58,17 @@ module%override Types = struct
     [%%types] [@@deriving refl]
   end
 
-  type value_kind = Types.value_kind [@opaque] [@@deriving refl]
+  module%override Meths = struct
+    type 'a t = 'a Types.Meths.t [@opaque] [@@deriving refl]
+  end
 
-  type class_signature = Types.class_signature [@opaque] [@@deriving refl]
+  module%override Vars = struct
+    type 'a t = 'a Types.Vars.t [@opaque] [@@deriving refl]
+  end
+
+  module%override Concr = struct
+    type t = Types.Concr.t [@opaque] [@@deriving refl]
+  end
 
   type unboxed_status = Types.unboxed_status [@opaque] [@@deriving refl]
 
@@ -68,12 +76,6 @@ module%override Types = struct
 end
 
 module%override Typedtree = struct
-  type class_structure =
-      Typedtree.class_structure [@opaque] [@@deriving refl]
-
-  type class_expr_desc =
-      Typedtree.class_expr_desc [@opaque] [@@deriving refl]
-
   [%%types] [@@deriving refl]
 end
 
