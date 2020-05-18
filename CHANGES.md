@@ -2,7 +2,7 @@
 
 - support for OCaml 4.11.0
 
-- Relies on `metapp` and `metaquot`.
+- relies on `metapp` and `metaquot`.
   `ppxlib` and `ppx_deriving` are not dependencies anymore.
 
 # override 0.2.2, 2019-09-27
