@@ -22,6 +22,6 @@ and change module interfaces.
   (ocaml (and (>= 4.03.0) (< 4.12.0)))
   (dune (>= 1.10.0))
   (stdcompat (>= 9))
-  (metapp (>= 0.1.0))
-  (metaquot (>= 0.1.0))
+  (metapp (>= 0.2.0))
+  (metaquot (>= 0.2.0))
   (refl (>= 0.1.0))))
