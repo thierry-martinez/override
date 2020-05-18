@@ -1,6 +1,6 @@
-# override 0.3.0, 2020-02-26
+# override 0.3.0, 2020-05-18
 
-- support for OCaml 4.10.0
+- support for OCaml 4.11.0
 
 - Relies on `metapp` and `metaquot`.
   `ppxlib` and `ppx_deriving` are not dependencies anymore.
