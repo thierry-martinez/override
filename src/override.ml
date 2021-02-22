@@ -1,3 +1,5 @@
+open Ppxlib
+
 let override_name = "[%%override]"
 
 let recursive_name = "[%%recursive]"
@@ -70,12 +72,12 @@ let lazy_env = lazy (
      and this prevents loading the interface of recursive-types-using
      modules. On the other hand, setting recursive_types more often
      than necessary does not seem harmful. *)
-  Clflags.recursive_types := true;
+  Ocaml_common.Clflags.recursive_types := true;
   [%meta if Sys.ocaml_version >= "4.09.0" then
-    [%e Compmisc.init_path ()]
+    [%e Ocaml_common.Compmisc.init_path ()]
   else
-    [%e Compmisc.init_path false]];
-  Compmisc.initial_env ()
+    [%e Ocaml_common.Compmisc.init_path false]];
+  Ocaml_common.Compmisc.initial_env ()
 )
 
 let try_find_module ~loc:_loc env lid =
@@ -97,10 +99,10 @@ let try_find_module ~loc:_loc env lid =
   try
     let path =
       [%meta if Sys.ocaml_version >= "4.10.0" then
-        [%e fst (Env.lookup_module ~loc:_loc lid env)]
+        [%e fst (Ocaml_common.Env.lookup_module ~loc:_loc lid env)]
       else
-        [%e Env.lookup_module ~load:true lid env]] in
-    let module_decl = Env.find_module path env in
+        [%e Ocaml_common.Env.lookup_module ~load:true lid env]] in
+    let module_decl = Ocaml_common.Env.find_module path env in
     Some module_decl.md_type
   with Not_found -> None
 
@@ -108,12 +110,12 @@ let try_find_module_type ~loc env lid =
   (* Here again we prefer to handle the `Not_found` case, so we
      use `Env.lookup_module` rather than `Typetexp.lookup_module`. *)
   try
-    let _path, modtype_decl = Env.lookup_modtype ~loc lid env in
+    let _path, modtype_decl = Ocaml_common.Env.lookup_modtype ~loc lid env in
     Some (match modtype_decl.mtd_type with
         | None ->
           Location.raise_errorf ~loc
             "%s: cannot access the signature of the abstract module %a"
-            override_name Printtyp.longident lid
+            override_name Ocaml_common.Printtyp.longident lid
         | Some module_type -> module_type)
   with Not_found -> None
 
@@ -126,7 +128,7 @@ let locate_sig env (ident : Longident.t Location.loc) =
         | Some mty -> mty
         | None ->
             Location.raise_errorf ~loc "%s: cannot locate module %a"
-              override_name Printtyp.longident lid
+              override_name Ocaml_common.Printtyp.longident lid
 
 let rec root_of_longident (lid : Longident.t) =
   match lid with
@@ -136,7 +138,7 @@ let rec root_of_longident (lid : Longident.t) =
 
 let is_self_reference (lid : Longident.t) =
   let mn = String.uncapitalize_ascii (root_of_longident lid) in
-  let fn = !Location.input_name |> Filename.basename |>
+  let fn = !Ocaml_common.Location.input_name |> Filename.basename |>
     Filename.chop_extension |> String.uncapitalize_ascii in
   mn = fn
 
@@ -169,21 +171,20 @@ let rec match_core_type subst_ref (p : Parsetree.core_type)
   | _ ->
       Core_type_equiv.equiv_core_type (match_core_type subst_ref) p t
 
-let subst_core_type subst t =
-  let typ mapper (t : Parsetree.core_type) =
-    match
-      match t.ptyp_desc with
-      | Ptyp_var x ->
-          begin match String_map.find_opt x subst with
-          | Some t' -> Some t'
-          | None -> None
-          end
-      | _ -> None
-    with
-    | Some t' -> t'
-    | None -> Ast_mapper.default_mapper.typ mapper t in
-  let mapper = { Ast_mapper.default_mapper with typ } in
-  mapper.typ mapper t
+let subst_core_type subst ty =
+  let mapper = object
+    inherit Ppxlib.Ast_traverse.map as super
+
+    method! core_type (ty : Ppxlib.core_type) : Ppxlib.core_type =
+      match
+        match ty.ptyp_desc with
+        | Ptyp_var x -> String_map.find_opt x subst
+        | _ -> None
+      with
+      | Some t' -> t'
+      | None -> super#core_type ty
+  end in
+  mapper#core_type ty
 
 type rewrite_system = (Parsetree.core_type * Parsetree.core_type) list
 
@@ -241,8 +242,10 @@ let rec rewrite_mod (subst : Longident.t Longident_map.t) (lid : Longident.t) =
     | Ldot (lid, name) -> Ldot (rewrite_mod subst lid, name)
     | Lapply (u, v) -> Lapply (rewrite_mod subst u, rewrite_mod subst v)
 
-let mapper_of_rewrite_context rewrite_context =
-  let typ (mapper : Ast_mapper.mapper) (core_type : Parsetree.core_type) =
+let mapper_of_rewrite_context rewrite_context = object (self)
+  inherit Ppxlib.Ast_traverse.map as super
+
+  method! core_type (core_type : Parsetree.core_type) =
     let core_type =
       match core_type.ptyp_desc with
       | Ptyp_var x ->
@@ -250,7 +253,7 @@ let mapper_of_rewrite_context rewrite_context =
           with Not_found -> core_type
           end
       | Ptyp_constr (lid, args) ->
-          let args = args |> List.map (mapper.typ mapper) in
+          let args = args |> List.map self#core_type in
           let txt =
             match
               Longident_map.find_opt lid.txt rewrite_context.subst_constr
@@ -258,9 +261,9 @@ let mapper_of_rewrite_context rewrite_context =
             | Some txt -> txt
             | None -> rewrite_mod rewrite_context.subst_mod lid.txt in
           { core_type with ptyp_desc = Ptyp_constr ({ lid with txt }, args) }
-      | _ -> Ast_mapper.default_mapper.typ mapper core_type in
-    rewrite rewrite_context.rewrite_system core_type in
-  { Ast_mapper.default_mapper with typ }
+      | _ -> super#core_type core_type in
+    rewrite rewrite_context.rewrite_system core_type
+end
 
 let map_loc f (l : 'a Location.loc) : 'b Location.loc =
   { l with txt = f l.txt }
@@ -450,7 +453,7 @@ let import_type_declaration ~loc rewrite_context ?modident name
     ?params ?(attrs = [])
     (decl : Parsetree.type_declaration) : Parsetree.type_declaration =
   let mapper = mapper_of_rewrite_context rewrite_context in
-  let result = mapper.type_declaration mapper decl in
+  let result = mapper#type_declaration decl in
   let params =
     match params with
     | None -> decl.ptype_params |> List.map fst
@@ -458,8 +461,8 @@ let import_type_declaration ~loc rewrite_context ?modident name
   let from_name = decl.ptype_name in
   let ptype_name = name in
   let ptype_manifest, ptype_attributes =
-    match result.ptype_manifest with
-    | Some typ ->
+    match result.ptype_manifest, result.ptype_private with
+    | Some typ, Public ->
         let attrs : Parsetree.attributes =
           if has_attr attr_rewrite attrs && not (has_attr attr_from attrs) then
             let imported_type = Ast_helper.Typ.constr
@@ -469,14 +472,15 @@ let import_type_declaration ~loc rewrite_context ?modident name
           else
             attrs in
         Some typ, attrs
-    | None ->
+    | None, _ | _, Private ->
         let manifest =
           modident |> Option.map begin fun modident ->
             Ast_helper.Typ.constr (qualified_ident_of_name modident from_name)
               params
           end in
         manifest, attrs in
-  { result with ptype_name; ptype_manifest; ptype_attributes }
+  { result with ptype_name; ptype_manifest; ptype_private = Public;
+    ptype_attributes }
 
 type import_type_decl = {
     new_name : string Location.loc;
@@ -550,7 +554,7 @@ let decl_of_list ~loc attrs modident rewrite_context
   end
 
 type 'a env = {
-    env : Env.t;
+    env : Ocaml_common.Env.t;
     scope : Symbol_table.t;
     signature : 'a;
   }
@@ -644,14 +648,14 @@ let extract_functor ~loc env lid =
       f, signature
   | None ->
       Location.raise_errorf ~loc "%s: %a is not a functor"
-        override_name Printtyp.longident lid
+        override_name Ocaml_common.Printtyp.longident lid
 
 let extract_signature ~loc env lid =
   match Option.bind (resolve_alias ~loc env) get_signature with
   | Some signature -> signature
   | None ->
       Location.raise_errorf ~loc
-        "%s: %a is a functor" override_name  Printtyp.longident lid
+        "%s: %a is a functor" override_name Ocaml_common.Printtyp.longident lid
 
 type modenv = {
     ident : Longident.t Location.loc;
@@ -679,7 +683,7 @@ let apply_functor ~loc modenv name =
 
 let not_found kind (name : string Location.loc) ident =
   Location.raise_errorf ~loc:name.loc "%s: %s %s not found in %a"
-    override_name kind name.txt Printtyp.longident ident
+    override_name kind name.txt Ocaml_common.Printtyp.longident ident
 
 let find kind (name : string Location.loc) map ident =
   try
@@ -702,12 +706,13 @@ type mode = {
     submodule : bool;
   }
 
+let modes =
+  ["override", { import = Include; submodule = true; };
+     "include", { import = Include; submodule = false; };
+     "import", { import = Not_include; submodule = false; }]
+
 let mode_of_string name =
-  match name with
-  | "override" -> { import = Include; submodule = true; }
-  | "include" -> { import = Include; submodule = false; }
-  | "import" -> { import = Not_include; submodule = false; }
-  | _ -> invalid_arg "mode_of_string"
+  List.assoc_opt name modes
 
 let rec remove_prefix prefix (ident : Longident.t) =
   match ident with
@@ -721,14 +726,17 @@ let rec remove_prefix prefix (ident : Longident.t) =
 let map_typ_constr
     (p : Longident.t Location.loc -> Parsetree.core_type list ->
       Parsetree.core_type) t =
-  let typ (mapper : Ast_mapper.mapper) (t : Parsetree.core_type) =
-    match t.ptyp_desc with
-    | Ptyp_constr (ident, args) ->
-        let result = p ident (args |> List.map (mapper.typ mapper)) in
-        { t with ptyp_desc = result.ptyp_desc }
-    | _ -> Ast_mapper.default_mapper.typ mapper t in
-  let mapper = { Ast_mapper.default_mapper with typ } in
-  mapper.typ mapper t
+  let mapper = object (self)
+    inherit Ppxlib.Ast_traverse.map as super
+
+    method! core_type (t : Parsetree.core_type) =
+      match t.ptyp_desc with
+      | Ptyp_constr (ident, args) ->
+          let result = p ident (args |> List.map self#core_type) in
+          { t with ptyp_desc = result.ptyp_desc }
+      | _ -> super#core_type t
+  end in
+  mapper#core_type t
 
 let map_typ_constr_ident
     (p : Longident.t Location.loc -> Longident.t Location.loc) t =
@@ -1089,7 +1097,7 @@ let prepare_type_decls map type_decls modident mktype overriden_ref defined_ref
                           typ, decl.decl.ptype_params in
             let from_type =
               let mapper = mapper_of_rewrite_context rewrite_context in
-              mapper.typ mapper from_type in
+              mapper#core_type from_type in
             overriden_ref := Symbol_set.add_type name.txt !overriden_ref;
             defined_ref := Symbol_set.add_type name.txt !defined_ref;
             let attrs =
@@ -1165,6 +1173,10 @@ let filter_signature (sig_ : Parsetree.signature) (symbols : Symbol_set.t)
     | _ -> Some item
   end
 
+let context_table_sz = 17
+
+let context_table = Hashtbl.create context_table_sz
+
 module Make_mapper (Wrapper : Ast_wrapper.S) = struct
   let make_recursive ~loc contents attributes =
     let rec extract_type_decls contents =
@@ -1239,7 +1251,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
       (modtype_decl : Parsetree.module_type_declaration) =
     let mapper = mapper_of_rewrite_context rewrite_context in
     let modtype_decl =
-      modtype_decl |> mapper.module_type_declaration mapper in
+      mapper#module_type_declaration modtype_decl in
     Wrapper.build { loc; txt = Modtype modtype_decl }
 
   let override ~loc (rewrite_env : rewrite_env)
@@ -1317,8 +1329,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                 Wrapper.choose (symbols_only_allowed_in_signatures ~loc)
                 (fun () ->
                   let mapper = mapper_of_rewrite_context rewrite_context in
-                  Ast_helper.Sig.value
-                    (mapper.value_description mapper decl)) in
+                  Ast_helper.Sig.value (mapper#value_description decl)) in
               Some item
         | Module group ->
             if only_types then
@@ -1329,8 +1340,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
                   begin fun () ->
                     let mapper = mapper_of_rewrite_context rewrite_context in
                     let decls =
-                      group.decls |>
-                      List.map (mapper.module_declaration mapper) in
+                      List.map mapper#module_declaration group.decls in
                     match group.rec_flag with
                     | Recursive -> Ast_helper.Sig.rec_module decls
                     | Nonrecursive ->
@@ -1544,8 +1554,8 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           []
       | Extension ((extension_name, payload), attrs), _ ->
           begin match mode_of_string extension_name.txt with
-          | exception (Invalid_argument _) -> [item]
-          | mode ->
+          | None -> [item]
+          | Some mode ->
               let submodule = module_or_modtype_of_payload ~loc payload in
               let manifest =
                 match submodule with
@@ -1619,77 +1629,111 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
         context.override_module_type in
     override_module context'
 
+  let map_rewrite (context : mapper_context)
+      (mapper : mapper_context -> Ppxlib.Ast_traverse.map)
+      ~loc payload =
+    let rewrite_env =
+      force_rewrite_env context.rewrite_env |>
+      derive_rewrite_env in
+    let mapper = mapper { context with rewrite_env = Some rewrite_env } in
+    let contents =
+      Wrapper.destruct_payload ~loc payload |> Wrapper.map mapper in
+    include_module ~loc (structure_of_contents ~loc contents)
+
+  let map_recursive (context : mapper_context)
+      (mapper : mapper_context -> Ppxlib.Ast_traverse.map) ~loc payload =
+    let rewrite_env = force_rewrite_env context.rewrite_env in
+    let mapper = mapper { context with rewrite_env = Some rewrite_env } in
+    let contents =
+      Wrapper.destruct_payload ~loc payload |> Wrapper.map mapper in
+    if context.ocamldep then
+      include_module ~loc (structure_of_contents ~loc contents)
+    else
+      match make_recursive ~loc contents [] with
+      | None -> Wrapper.empty ()
+      | Some item -> item
+
+  let map_print_rewrite_system (context : mapper_context) =
+    let rewrite_env = force_rewrite_env context.rewrite_env in
+    let rewrite_context = current_rewrite_context rewrite_env in
+    rewrite_context.rewrite_system |> List.iter (fun (lhs, rhs) ->
+      Format.fprintf Format.err_formatter "%a -> %a@."
+        Pprintast.core_type lhs
+        Pprintast.core_type rhs);
+    Wrapper.empty ()
+
+  let map_mode mode (context : mapper_context)
+      (mapper : mapper_context -> Ppxlib.Ast_traverse.map) ~loc payload =
+    match module_or_modtype_of_payload ~loc payload with
+    | Module desc ->
+        let name = desc.txt.contents.name in
+        let name =
+          match name with
+          | { txt = Some txt; _ } -> { name with txt }
+          | _ ->
+              Location.raise_errorf ~loc
+                "%s: anonymous module unsupported here" override_name in
+        let rewrite_env = force_rewrite_env context.rewrite_env in
+        let modenv =
+          let ident = ident_of_name name in
+          let modtype =
+            if context.ocamldep then
+              None
+            else
+              let env = Lazy.force lazy_env in
+              Some {
+                env;
+                signature =
+                  Parsetree_of_types.module_type (locate_sig env ident);
+                scope = Symbol_table.empty } in
+          { ident; modtype } in
+        let rewrite_env' = derive_rewrite_env rewrite_env in
+        let context =
+          make_context modenv name.txt mode rewrite_env'
+            context.override_module_type ~manifest:true in
+        override_module rewrite_env context desc
+    | Modtype decl ->
+        Location.raise_errorf ~loc
+          "Module types cannot be compilation unit"
+
+  let make_extensions context_of_expansion
+      (mapper : mapper_context -> Ppxlib.Ast_traverse.map) =
+    [Extension.V3.declare "rewrite" Wrapper.context Ast_pattern.(__)
+      (fun ~ctxt ->
+        map_rewrite (context_of_expansion ctxt) mapper
+          ~loc:(Expansion_context.Extension.extension_point_loc ctxt));
+      Extension.V3.declare "recursive" Wrapper.context Ast_pattern.(__)
+       (fun ~ctxt ->
+         map_recursive (context_of_expansion ctxt) mapper
+           ~loc:(Expansion_context.Extension.extension_point_loc ctxt));
+      Extension.V3.declare "print_rewrite_system" Wrapper.context
+        Ast_pattern.(__)
+        (fun ~ctxt _payload ->
+          map_print_rewrite_system (context_of_expansion ctxt))] @
+    (modes |> List.map (fun (name, mode) ->
+      Extension.V3.declare name Wrapper.context Ast_pattern.(__)
+       (fun ~ctxt -> map_mode mode (context_of_expansion ctxt) mapper
+          ~loc:(Expansion_context.Extension.extension_point_loc ctxt))))
+
   let mapper
       (context : mapper_context)
-      (mapper : mapper_context -> Ast_mapper.mapper)
+      (mapper : mapper_context -> Ppxlib.Ast_traverse.map)
+      (super : Wrapper.item -> Wrapper.item)
       (item : Wrapper.item) =
     let item_desc = Wrapper.destruct item in
     let loc = item_desc.loc in
     let result =
     match item_desc.txt with
-    | Extension (({ txt = "rewrite"; _ }, payload), attrs) ->
-      let rewrite_env =
-        force_rewrite_env context.rewrite_env |>
-        derive_rewrite_env in
-      let mapper = mapper { context with rewrite_env = Some rewrite_env } in
-      let contents =
-        Wrapper.destruct_payload ~loc payload |> Wrapper.map mapper mapper in
-      include_module ~loc (structure_of_contents ~loc contents)
-    | Extension (({ txt = "recursive"; _ }, payload), attrs) ->
-      let rewrite_env = force_rewrite_env context.rewrite_env in
-      let mapper = mapper { context with rewrite_env = Some rewrite_env } in
-      let contents =
-        Wrapper.destruct_payload ~loc payload |> Wrapper.map mapper mapper in
-      if context.ocamldep then
-        include_module ~loc (structure_of_contents ~loc contents)
-      else
-        begin match make_recursive ~loc contents attrs with
-        | None -> Wrapper.empty ()
-        | Some item -> item
-        end
+    | Extension (({ txt = "rewrite"; _ }, payload), _attrs) ->
+        map_rewrite context mapper ~loc payload
+    | Extension (({ txt = "recursive"; _ }, payload), _attrs) ->
+        map_recursive context mapper ~loc payload
     | Extension (({ txt = "print_rewrite_system"; _ }, _payload), _attrs) ->
-        let rewrite_env = force_rewrite_env context.rewrite_env in
-        let rewrite_context = current_rewrite_context rewrite_env in
-        rewrite_context.rewrite_system |> List.iter (fun (lhs, rhs) ->
-          Format.fprintf Format.err_formatter "%a -> %a@."
-            Pprintast.core_type lhs
-            Pprintast.core_type rhs);
-        Wrapper.empty ()
-    | Extension ((extension_name, payload), attrs) ->
+        map_print_rewrite_system context
+    | Extension ((extension_name, payload), _attrs) ->
         begin match mode_of_string extension_name.txt with
-        | exception (Invalid_argument _) -> item
-        | mode ->
-            match module_or_modtype_of_payload ~loc payload with
-            | Module desc ->
-                let name = desc.txt.contents.name in
-                let name =
-                  match name with
-                  | { txt = Some txt; _ } -> { name with txt }
-                  | _ ->
-                      Location.raise_errorf ~loc
-                        "%s: anonymous module unsupported here" override_name in
-                let rewrite_env = force_rewrite_env context.rewrite_env in
-                let modenv =
-                  let ident = ident_of_name name in
-                  let modtype =
-                    if context.ocamldep then
-                      None
-                    else
-                      let env = Lazy.force lazy_env in
-                      Some {
-                        env;
-                        signature =
-                          Parsetree_of_types.module_type (locate_sig env ident);
-                        scope = Symbol_table.empty } in
-                  { ident; modtype } in
-                let rewrite_env' = derive_rewrite_env rewrite_env in
-                let context =
-                  make_context modenv name.txt mode rewrite_env'
-                    context.override_module_type ~manifest:true in
-                override_module rewrite_env context desc
-            | Modtype decl ->
-                Location.raise_errorf ~loc
-                  "Module types cannot be compilation unit"
+        | None -> item
+        | Some mode -> map_mode mode context mapper ~loc payload
         end
     | Type (rec_flag, type_decls) ->
         let rewrite_system_ref =
@@ -1700,7 +1744,7 @@ module Make_mapper (Wrapper : Ast_wrapper.S) = struct
           apply_rewrite_attr ~loc rewrite_system_ref type_decls in
         Wrapper.build { loc; txt = Type (rec_flag, type_decls)}
     | _ ->
-        Wrapper.map_item Ast_mapper.default_mapper (mapper context) item in
+        super item in
     result
 end
 
@@ -1708,16 +1752,43 @@ module Structure_mapper = Make_mapper (Ast_wrapper.Structure)
 
 module Signature_mapper = Make_mapper (Ast_wrapper.Signature)
 
-let rec make_mapper (context : mapper_context) : Ast_mapper.mapper = {
-  Ast_mapper.default_mapper with
-  structure_item = (fun _mapper -> Structure_mapper.mapper context make_mapper);
-  signature_item = (fun _mapper -> Signature_mapper.mapper context make_mapper);
-}
+let context_of_expansion (context : Expansion_context.Extension.t) =
+  let tool_name = Expansion_context.Extension.tool_name context in
+  let file_path =
+    Code_path.file_path (Expansion_context.Extension.code_path context) in
+  let key = (tool_name, file_path) in
+  try
+    Hashtbl.find context_table key
+  with Not_found ->
+    let context = {
+      ocamldep = tool_name = "ocamldep";
+      rewrite_env = None;
+      override_module_type = Signature_mapper.override_module_expr } in
+    Hashtbl.add context_table key context;
+    context
+
+let rec mapper_of_context (context : mapper_context) : Ppxlib.Ast_traverse.map =
+  (object
+    inherit Ppxlib.Ast_traverse.map as super
+
+    method! structure_item =
+      Structure_mapper.mapper context mapper_of_context super#structure_item
+
+    method! signature_item =
+      Signature_mapper.mapper context mapper_of_context super#signature_item
+  end :> Ppxlib.Ast_traverse.map)
+
+(*
+let mapper_of_expansion_context (context : Expansion_context.Base.t) :
+    Ppxlib.Ast_traverse.map =
+  mapper_of_context {
+    ocamldep = Expansion_context.Base.tool_name context = "ocamldep";
+    rewrite_env = None;
+    override_module_type = Signature_mapper.override_module_expr }
+*)
 
 let () =
-  Migrate_parsetree.Driver.register ~name:"override" ~position:(-10)
-    (module Migrate_parsetree.OCaml_current)
-    (fun config _ ->
-      make_mapper {
-        ocamldep = config.tool_name = "ocamldep"; rewrite_env = None;
-        override_module_type = Signature_mapper.override_module_expr })
+  Ppxlib.Driver.V2.register_transformation "override"
+    ~rules:(List.map Context_free.Rule.extension (
+      Structure_mapper.make_extensions context_of_expansion mapper_of_context @
+      Signature_mapper.make_extensions context_of_expansion mapper_of_context))

@@ -1,3 +1,5 @@
+open Ppxlib
+
 module type Ast_types = sig
   type item
 
@@ -63,9 +65,9 @@ module type S = sig
       (unit -> Parsetree.structure_item) ->
         (unit -> Parsetree.signature_item) -> item
 
-  val map : Ast_mapper.mapper -> Ast_mapper.mapper -> contents -> contents
+  val map : Ppxlib.Ast_traverse.map -> contents -> contents
 
-  val map_item : Ast_mapper.mapper -> Ast_mapper.mapper -> item -> item
+  val map_item : Ppxlib.Ast_traverse.map -> item -> item
 
   val format : Format.formatter -> contents -> unit
 
@@ -82,6 +84,8 @@ module type S = sig
   val choose_module_expr :
       (unit -> Parsetree.module_expr) -> (unit -> Parsetree.module_type) ->
         module_expr
+
+  val context : item Extension.Context.t
 end
 
 module Structure_types = struct
@@ -140,12 +144,11 @@ module Structure : S with module Types = Structure_types = struct
   let choose structure _signature =
     structure ()
 
-  let map (mapper : Ast_mapper.mapper) submapper (contents : contents)
-      : contents =
-    mapper.structure submapper contents
+  let map (mapper : Ppxlib.Ast_traverse.map) (contents : contents) : contents =
+    mapper#structure contents
 
-  let map_item (mapper : Ast_mapper.mapper) submapper item =
-    mapper.structure_item submapper item
+  let map_item (mapper : Ppxlib.Ast_traverse.map) item =
+    mapper#structure_item item
 
   let format = Pprintast.structure
 
@@ -203,6 +206,8 @@ module Structure : S with module Types = Structure_types = struct
 
   let choose_module_expr make_expr _make_type =
     make_expr ()
+
+  let context = Extension.Context.structure_item
 end
 
 module Signature_types = struct
@@ -244,11 +249,11 @@ module Signature : S with module Types = Signature_types = struct
   let choose _make_structure make_signature =
     make_signature ()
 
-  let map (mapper : Ast_mapper.mapper) submapper contents =
-    mapper.signature submapper contents
+  let map (mapper : Ppxlib.Ast_traverse.map) contents =
+    mapper#signature contents
 
-  let map_item (mapper : Ast_mapper.mapper) submapper item =
-    mapper.signature_item submapper item
+  let map_item (mapper : Ppxlib.Ast_traverse.map) item =
+    mapper#signature_item item
 
   let format formatter contents =
     Pprintast.signature formatter contents
@@ -302,4 +307,6 @@ module Signature : S with module Types = Signature_types = struct
 
   let choose_module_expr _make_expr make_type =
     make_type ()
+
+  let context = Extension.Context.signature_item
 end

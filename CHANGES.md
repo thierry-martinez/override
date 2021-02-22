@@ -1,3 +1,10 @@
+# override 0.4.0, 2021-02-24
+
+- Support for OCaml 4.12.0.
+  `metapp` and `metaquot` rely on `ppxlib` again.
+
+- Fix import of private aliases.
+
 # override 0.3.0, 2020-05-18
 
 - support for OCaml 4.11.0

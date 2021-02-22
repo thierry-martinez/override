@@ -26,6 +26,8 @@ let univar_of_type_expr (t : Types.type_expr) =
   | Tunivar var -> var
   | _ -> invalid_arg "univar_of_type_expr"
 
+let fresh_count = ref 0
+
 let rec core_type_of_type_expr (context : type_conversion_context)
     (type_expr : Types.type_expr) : Parsetree.core_type =
   match Int_map.find_opt type_expr.id context.ancestors with
@@ -41,9 +43,15 @@ let rec core_type_of_type_expr (context : type_conversion_context)
         ancestors = Int_map.add type_expr.id lazy_alias context.ancestors } in
       let result =
         match type_expr.desc with
-        | Tvar None | Tunivar None -> Ast_helper.Typ.any ()
-        | Tvar (Some var) | Tunivar (Some var) ->
-            Ast_helper.Typ.var var
+        | Tvar var | Tunivar var ->
+            begin match var with
+            | None -> Ast_helper.Typ.any ()
+            | Some "_" ->
+                let index = !fresh_count in
+                fresh_count := succ index;
+                Ast_helper.Typ.var (Printf.sprintf "anonymous_%d" index);
+            | Some var -> Ast_helper.Typ.var var
+            end
         | Tarrow (label, lhs, rhs, _) ->
             let lhs = core_type_of_type_expr context lhs in
             let lhs =
@@ -151,13 +159,19 @@ let constructor_declaration (cd : Types.constructor_declaration)
 
 let type_declaration name (decl : Types.type_declaration)
     : Parsetree.type_declaration =
-  let ptype_params = List.map2 begin fun param _variance ->
-    core_type_of_type_expr param,
+  let ptype_params = List.map2 begin fun param variance ->
+    let ty = core_type_of_type_expr param in
+    let inj : Asttypes.injectivity =
+      if Types.Variance.mem Inj variance then
+        Injective
+      else
+        NoInjectivity in
+    ty,
     (* The equivalent of not specifying the variance explicitly.
        Since the very purpose of ppx_import is to include the full definition,
        it should always be sufficient to rely on the inferencer to deduce
        variance. *)
-    Asttypes.Invariant
+    (Asttypes.NoVariance, inj)
   end decl.type_params decl.type_variance in
   let ptype_kind : Parsetree.type_kind =
     match decl.type_kind with

@@ -6,7 +6,7 @@ end
 
 let test () =
   assert (
-    Longident.show (Longident.parse "Foo.Bar.baz") =
+    Longident.show (Option.get (Longident.unflatten ["Foo"; "Bar"; "baz"])) =
     {|(Longident.Ldot ((Longident.Ldot ((Longident.Lident "Foo"), "Bar")), "baz"))|}
  )
 

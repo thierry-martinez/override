@@ -15,7 +15,7 @@ recursive block" *)
   [%%meta if Sys.ocaml_version >= "4.07.0" then [%stri
     module%import Stdlib = struct
       module%import Lexing = struct
-        type position = _ [@@rewrite]
+        type position = _ [@@rewrite] [@@deriving eq]
       end
     end]
   else [%stri
@@ -59,7 +59,6 @@ recursive block" *)
   end
 
   [%%print_rewrite_system]]
-       [@@deriving eq]
 
 let test () =
   assert (equal_structure [%str (1, 2)] [%str (1, 2)]);

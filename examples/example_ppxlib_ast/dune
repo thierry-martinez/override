@@ -1,4 +1,4 @@
 (executable
-  (name ppxlib_ast)
+  (name example_ppxlib_ast)
   (preprocess (staged_pps metapp.ppx override ppx_deriving.std metaquot.ppx))
-  (libraries compiler-libs.common))
+  (libraries ppxlib))
