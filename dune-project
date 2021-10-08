@@ -23,6 +23,6 @@ and change module interfaces.
   (ppxlib (>= 0.23.0))
   (dune (>= 1.11.0))
   (stdcompat (>= 9))
-  (metapp (>= 0.2.0))
-  (metaquot (>= 0.2.0))
+  (metapp (>= 0.4.2))
+  (metaquot (>= 0.4.0))
   (refl (>= 0.1.0))))
