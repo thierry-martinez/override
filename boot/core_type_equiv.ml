@@ -11,7 +11,7 @@ let equal_pair px py (x0, y0) (x1, y1) =
   px x0 x1 && py y0 y1
 
 let equal_payload equal_core_type
-    (p0 : Parsetree.payload) (p1 : Parsetree.payload) =
+    (p0 : Ppxlib.payload) (p1 : Ppxlib.payload) =
   match p0, p1 with
   | PStr s0, PStr s1 ->
       failwith "TODO [%%override]: equal_payload not implemented for structures"
@@ -21,7 +21,7 @@ let equal_payload equal_core_type
   | _ -> false
 
 let equal_attributes equal_core_type l0 l1 =
-  equal_list (fun (a0 : Parsetree.attribute) (a1 : Parsetree.attribute) ->
+  equal_list (fun (a0 : Ppxlib.attribute) (a1 : Ppxlib.attribute) ->
     Metapp.Attr.name a0 = Metapp.Attr.name a1 &&
     equal_payload equal_core_type (Metapp.Attr.payload a0)
       (Metapp.Attr.payload a1)) l0 l1
@@ -37,7 +37,7 @@ let equal_object_field equal_core_type (f0 : Metapp.Of.t) (f1 : Metapp.Of.t) =
   | _ -> false
 
 let equal_row_field equal_core_type
-    (f0 : Parsetree.row_field) (f1 : Parsetree.row_field) =
+    (f0 : Ppxlib.row_field) (f1 : Ppxlib.row_field) =
   equal_attributes equal_core_type (Metapp.Rf.to_attributes f0)
     (Metapp.Rf.to_attributes f1) &&
   match Metapp.Rf.destruct f0, Metapp.Rf.destruct f1 with
@@ -47,8 +47,8 @@ let equal_row_field equal_core_type
   | Rinherit t0, Rinherit t1 -> equal_core_type t0 t1
   | _ -> false
 
-let equiv_core_type equiv_rec (t0 : Parsetree.core_type)
-    (t1 : Parsetree.core_type) =
+let equiv_core_type equiv_rec (t0 : Ppxlib.core_type)
+    (t1 : Ppxlib.core_type) =
   equal_attributes equiv_rec t0.ptyp_attributes t1.ptyp_attributes &&
   match t0.ptyp_desc, t1.ptyp_desc with
   | Ptyp_any, Ptyp_any -> true
