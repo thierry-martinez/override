@@ -1,4 +1,4 @@
-(lang dune 1.11)
+(lang dune 2.9)
 
 (generate_opam_files true)
 
@@ -21,7 +21,6 @@ and change module interfaces.
  (depends
   (ocaml (>= 4.08.0))
   (ppxlib (>= 0.23.0))
-  (dune (>= 1.11.0))
   (stdcompat (>= 9))
   (metapp (>= 0.4.2))
   (metaquot (>= 0.4.0))
